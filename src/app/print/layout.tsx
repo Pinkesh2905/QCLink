@@ -22,7 +22,7 @@ export default async function PrintLayout({
 
   return (
     <SessionProvider initialUser={initialUser}>
-      <div className="min-h-screen bg-slate-100/80 print:bg-white text-slate-900 antialiased py-0 sm:py-6 print:py-0">
+      <div className="min-h-screen bg-slate-100/80 print:bg-white text-slate-900 antialiased py-0 sm:py-6 px-0 sm:px-4 print:py-0 print:px-0">
         <style dangerouslySetInnerHTML={{ __html: `
           @page {
             size: A4 portrait;
@@ -48,6 +48,18 @@ export default async function PrintLayout({
               width: 100% !important;
               max-width: 100% !important;
               border-radius: 0 !important;
+            }
+            .print-table-container {
+              overflow: visible !important;
+            }
+            .print-table {
+              min-width: 100% !important;
+              width: 100% !important;
+            }
+            .print-grid {
+              display: grid !important;
+              grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+              gap: 3rem !important;
             }
             thead {
               display: table-header-group !important;
