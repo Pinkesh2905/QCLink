@@ -59,10 +59,12 @@ export async function POST(req: NextRequest) {
         [user.UserID, tokenHash]
       );
 
-      // 4. Fire-and-forget password reset email with the raw token
-      sendPasswordResetEmail(user.Email, user.Name, rawToken).catch((err) => {
+      // 4. Send password reset email with the raw token
+      try {
+        await sendPasswordResetEmail(user.Email, user.Name, rawToken);
+      } catch (err) {
         console.error('Failed to send password reset email:', err);
-      });
+      }
     }
 
     // Always return the exact same success response regardless of email existence

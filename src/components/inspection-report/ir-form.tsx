@@ -20,7 +20,7 @@ import {
   updateInspectionReportSchema,
   type InspectionResultInputSchema,
 } from '@/validators/inspection-report';
-import { Loader2, History, ArrowLeft, Save } from 'lucide-react';
+import { Loader2, History, ArrowLeft, Save, Printer } from 'lucide-react';
 import type { InspectionReportDetailResponse, QCMasterDetailResponse } from '@/types/api';
 import type { QCMasterWithLookups } from '@/types/db';
 
@@ -272,10 +272,19 @@ export function IRForm({ initialData, isEdit = false }: IRFormProps) {
         </div>
 
         {isEdit && initialData && (
-          <Button variant="outline" onClick={() => setHistoryOpen(true)}>
-            <History className="mr-2 h-4 w-4" />
-            History
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={() => window.open(`/print/inspection-report/${initialData.IIRUID}`, '_blank')}
+            >
+              <Printer className="mr-2 h-4 w-4" />
+              Print
+            </Button>
+            <Button variant="outline" onClick={() => setHistoryOpen(true)}>
+              <History className="mr-2 h-4 w-4" />
+              History
+            </Button>
+          </div>
         )}
       </div>
 

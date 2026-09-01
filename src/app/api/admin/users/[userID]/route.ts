@@ -95,16 +95,16 @@ export const PUT = withAdmin(async (req: NextRequest, ctx) => {
       await writeAuditDiffs(conn, 'Users', String(targetUserID), diffs, ctx.user.userId);
     });
 
-    // Fire-and-forget status notification emails
+    // Status notification emails
     if (data.Status && targetUser.Status === 'Pending') {
-      if (data.Status === 'Active') {
-        sendApprovalEmail(targetUser.Email, targetUser.Name).catch((err) => {
-          console.error('Background approval email error:', err);
-        });
-      } else if (data.Status === 'Rejected') {
-        sendRejectionEmail(targetUser.Email, targetUser.Name).catch((err) => {
-          console.error('Background rejection email error:', err);
-        });
+      try {
+        if (data.Status === 'Active') {
+          await sendApprovalEmail(targetUser.Email, targetUser.Name);
+        } else if (data.Status === 'Rejected') {
+          await sendRejectionEmail(targetUser.Email, targetUser.Name);
+        }
+      } catch (err) {
+        console.error('Background user status notification email error:', err);
       }
     }
 

@@ -1,20 +1,36 @@
 // ============================================================================
 // QCLink — Transactional Email Notifications
-// Powered by Resend (fire-and-forget with console fallback in local dev).
+// Supports Gmail SMTP (Nodemailer), Resend, and local dev console fallback.
 // ============================================================================
 
+import nodemailer from 'nodemailer';
 import { Resend } from 'resend';
 import { query } from './db';
 import type { User } from '@/types/db';
 
 let resendInstance: Resend | null = null;
+let smtpTransporter: nodemailer.Transporter | null = null;
 let hasWarnedEmailFallback = false;
 
-/**
- * Check whether Resend email provider API key is configured.
- */
+export function isSMTPConfigured(): boolean {
+  return !!(process.env.SMTP_USER && process.env.SMTP_PASS);
+}
+
 export function isEmailConfigured(): boolean {
-  return !!process.env.EMAIL_PROVIDER_API_KEY;
+  return isSMTPConfigured() || !!process.env.EMAIL_PROVIDER_API_KEY;
+}
+
+function getSMTPTransporter(): nodemailer.Transporter {
+  if (!smtpTransporter) {
+    smtpTransporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS?.replace(/\s+/g, ''), // clean any spaces
+      },
+    });
+  }
+  return smtpTransporter;
 }
 
 function getResend(): Resend {
@@ -25,6 +41,9 @@ function getResend(): Resend {
 }
 
 function getFromAddress(): string {
+  if (isSMTPConfigured()) {
+    return process.env.SMTP_FROM || `QCLink <${process.env.SMTP_USER}>`;
+  }
   return process.env.EMAIL_FROM_ADDRESS || 'QCLink Notifications <onboarding@resend.dev>';
 }
 
@@ -33,7 +52,7 @@ function getAppUrl(): string {
 }
 
 /**
- * Centralized email dispatcher handling both Resend delivery and local dev console logging.
+ * Centralized email dispatcher handling Gmail SMTP, Resend, and local dev console logging.
  */
 async function dispatchEmail(options: {
   to: string | string[];
@@ -43,14 +62,44 @@ async function dispatchEmail(options: {
 }): Promise<void> {
   const { to, subject, html, textSummary } = options;
 
-  if (isEmailConfigured()) {
+  if (isSMTPConfigured()) {
+    try {
+      const transport = getSMTPTransporter();
+      const recipients = Array.isArray(to) ? to.join(', ') : to;
+      const info = await transport.sendMail({
+        from: getFromAddress(),
+        to: recipients,
+        subject,
+        html,
+      });
+      console.log(
+        `[QCLink Email Success] Sent via Gmail SMTP to ${JSON.stringify(to)} (ID: ${info.messageId})`
+      );
+    } catch (error) {
+      console.error(
+        `[QCLink Email Error] Gmail SMTP failed to send email to ${JSON.stringify(to)}:`,
+        error
+      );
+    }
+  } else if (process.env.EMAIL_PROVIDER_API_KEY) {
     const resend = getResend();
-    await resend.emails.send({
+    const result = await resend.emails.send({
       from: getFromAddress(),
       to,
       subject,
       html,
     });
+
+    if (result.error) {
+      console.error(
+        `[QCLink Email Error] Resend failed to send email to ${JSON.stringify(to)}:`,
+        result.error
+      );
+    } else {
+      console.log(
+        `[QCLink Email Success] Email sent via Resend to ${JSON.stringify(to)} (ID: ${result.data?.id})`
+      );
+    }
   } else {
     // Local development fallback
     if (!hasWarnedEmailFallback) {
@@ -119,9 +168,13 @@ export async function sendSignupNotificationToAdmins(
       "SELECT Email FROM Users WHERE Role = 'Admin' AND Status = 'Active'"
     );
 
-    const adminEmails = admins.map((a) => a.Email);
+    const adminEmails = admins
+      .map((a) => a.Email)
+      .filter((e) => e && e.includes('@') && !e.endsWith('@localhost'));
+
     if (adminEmails.length === 0) {
-      adminEmails.push('admin@localhost');
+      console.warn('[QCLink Email] No active admin emails found with valid addresses to notify.');
+      return;
     }
 
     const approvalsUrl = `${getAppUrl()}/app/admin/approvals`;

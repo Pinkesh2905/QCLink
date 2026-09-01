@@ -41,10 +41,12 @@ export async function POST(req: NextRequest) {
       [name, email, passwordHash]
     );
 
-    // Fire-and-forget email notification to all Admins
-    sendSignupNotificationToAdmins(name, email).catch((err) => {
+    // Email notification to all Admins
+    try {
+      await sendSignupNotificationToAdmins(name, email);
+    } catch (err) {
       console.error('Background admin notification error:', err);
-    });
+    }
 
     return NextResponse.json(
       { message: 'Account created. Awaiting admin approval.' },

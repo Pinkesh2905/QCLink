@@ -15,7 +15,7 @@ import { useLookup } from '@/hooks/use-lookup';
 import { useSession } from '@/hooks/use-session';
 import { useFieldPermissions } from '@/hooks/use-field-permissions';
 import { createQCMasterSchema, updateQCMasterSchema, type QCSpecInputSchema } from '@/validators/qc-master';
-import { Loader2, History, ArrowLeft, Save } from 'lucide-react';
+import { Loader2, History, ArrowLeft, Save, Printer } from 'lucide-react';
 import type { QCMasterDetailResponse } from '@/types/api';
 
 interface QCFormProps {
@@ -75,44 +75,16 @@ export function QCForm({ initialData, isEdit = false }: QCFormProps) {
     setLoading(true);
     setGeneralError(null);
 
-    if (!itemUID || !itemName) {
-      const err = 'Please select an item for this QC specification template';
-      setGeneralError(err);
-      toast.error(err);
-      setLoading(false);
-      return;
-    }
-
-    // Validate spec rows
-    for (let i = 0; i < specs.length; i++) {
-      if (!specs[i].Parameter.trim()) {
-        const err = `Parameter name is required for Specification Row #${i + 1}`;
-        setGeneralError(err);
-        toast.error(err);
-        setLoading(false);
-        return;
-      }
-      if (!specs[i].CriteriaID) {
-        const err = `Specification Criteria is required for Row #${i + 1}`;
-        setGeneralError(err);
-        toast.error(err);
-        setLoading(false);
-        return;
-      }
-    }
-
-    const payload = {
+    const parsed = (isEdit ? updateQCMasterSchema : createQCMasterSchema).safeParse({
       ItemUID: itemUID,
       ItemName: itemName,
       ImagePath: imagePath,
       Specifications: specs,
-    };
-
-    const schema = isEdit ? updateQCMasterSchema : createQCMasterSchema;
-    const parsed = schema.safeParse(payload);
+    });
 
     if (!parsed.success) {
-      const msg = parsed.error.issues[0]?.message || 'Validation failed';
+      const firstError = parsed.error.issues[0];
+      const msg = firstError ? `${firstError.path.join('.')}: ${firstError.message}` : 'Validation failed';
       setGeneralError(msg);
       toast.error(msg);
       setLoading(false);
@@ -132,13 +104,13 @@ export function QCForm({ initialData, isEdit = false }: QCFormProps) {
       const json = await res.json();
 
       if (!res.ok) {
-        const err = json.error || 'Failed to save QC Master template';
+        const err = json.error || 'Failed to save QC Master';
         setGeneralError(err);
         toast.error(err);
         return;
       }
 
-      toast.success(isEdit ? 'QC Master updated successfully' : 'QC Master template created');
+      toast.success(isEdit ? 'QC Specification template updated' : 'QC Specification template created');
       router.push('/app/qc-master');
       router.refresh();
     } catch {
@@ -168,10 +140,19 @@ export function QCForm({ initialData, isEdit = false }: QCFormProps) {
         </div>
 
         {isEdit && initialData && (
-          <Button variant="outline" onClick={() => setHistoryOpen(true)}>
-            <History className="mr-2 h-4 w-4" />
-            History
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={() => window.open(`/print/qc-master/${initialData.QCUID}`, '_blank')}
+            >
+              <Printer className="mr-2 h-4 w-4" />
+              Print
+            </Button>
+            <Button variant="outline" onClick={() => setHistoryOpen(true)}>
+              <History className="mr-2 h-4 w-4" />
+              History
+            </Button>
+          </div>
         )}
       </div>
 
