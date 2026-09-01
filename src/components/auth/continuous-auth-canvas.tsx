@@ -39,7 +39,7 @@ export function ContinuousAuthCanvas({ children }: { children: React.ReactNode }
       />
 
       {/* ========================================================================= */}
-      {/* 2. Crisp, Visible Dot-Grid Texture & Global SVG Network                   */}
+      {/* 2. Crisp, Visible Dot-Grid Texture                                        */}
       {/* ========================================================================= */}
       <svg
         className="pointer-events-none absolute inset-0 h-full w-full"
@@ -47,7 +47,6 @@ export function ContinuousAuthCanvas({ children }: { children: React.ReactNode }
         aria-hidden="true"
       >
         <defs>
-          {/* Tighter, crisp dot-grid pattern with muted gray dots */}
           <pattern
             id="canvas-dot-grid"
             width="32"
@@ -56,49 +55,9 @@ export function ContinuousAuthCanvas({ children }: { children: React.ReactNode }
           >
             <circle cx="2" cy="2" r="1.1" fill="#64748b" fillOpacity="0.22" />
           </pattern>
-          <linearGradient id="canvas-grad-1" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#0284c7" stopOpacity="0.45" />
-            <stop offset="50%" stopColor="#0d9488" stopOpacity="0.5" />
-            <stop offset="100%" stopColor="#059669" stopOpacity="0.4" />
-          </linearGradient>
-          <linearGradient id="canvas-grad-2" x1="100%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" stopColor="#0d9488" stopOpacity="0.35" />
-            <stop offset="100%" stopColor="#0284c7" stopOpacity="0.45" />
-          </linearGradient>
         </defs>
 
         <rect width="100%" height="100%" fill="url(#canvas-dot-grid)" />
-
-        {/* Global Connection Paths flowing across the entire canvas */}
-        <path
-          d="M 100,160 C 260,100 380,260 540,200 S 820,140 1060,180 S 1420,120 1680,220"
-          fill="none"
-          stroke="url(#canvas-grad-1)"
-          strokeWidth="1.5"
-          strokeDasharray="5 5"
-        />
-        <path
-          d="M 140,460 C 320,380 460,540 680,440 S 960,480 1200,400 S 1480,500 1720,440"
-          fill="none"
-          stroke="url(#canvas-grad-2)"
-          strokeWidth="1.5"
-          strokeDasharray="6 6"
-        />
-        <path
-          d="M 240,680 C 420,600 580,720 820,640 S 1180,680 1440,600"
-          fill="none"
-          stroke="url(#canvas-grad-1)"
-          strokeWidth="1.2"
-          strokeDasharray="4 4"
-        />
-
-        {/* Connection Nodes */}
-        <circle cx="100" cy="160" r="3.5" fill="#0284c7" fillOpacity="0.6" />
-        <circle cx="540" cy="200" r="4.5" fill="#0d9488" fillOpacity="0.7" />
-        <circle cx="1060" cy="180" r="3.5" fill="#059669" fillOpacity="0.5" />
-        <circle cx="140" cy="460" r="3.5" fill="#0284c7" fillOpacity="0.5" />
-        <circle cx="680" cy="440" r="4.5" fill="#0d9488" fillOpacity="0.6" />
-        <circle cx="1200" cy="400" r="3.5" fill="#0284c7" fillOpacity="0.5" />
       </svg>
 
       {/* High-contrast legibility glow behind the form area to keep text & inputs crystal clear */}
@@ -119,7 +78,7 @@ export function ContinuousAuthCanvas({ children }: { children: React.ReactNode }
           <div className="hidden lg:flex lg:col-span-7 flex-col max-w-[540px] z-10">
             <Logo size="lg" />
             <div className="mt-8">
-              {/* Natural line wrap without awkward dangling words */}
+              {/* Natural line wrap */}
               <h1 className="text-3xl font-bold tracking-tight text-[#0B1528] xl:text-[38px] xl:leading-[1.2] max-w-xl">
                 Quality control, connected.
               </h1>
