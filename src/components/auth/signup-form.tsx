@@ -60,7 +60,7 @@ export function SignupForm() {
         return;
       }
 
-      router.push('/pending');
+      router.replace('/pending');
     } catch {
       setError('Network error. Please try again.');
     } finally {

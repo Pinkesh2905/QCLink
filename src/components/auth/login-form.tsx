@@ -55,7 +55,7 @@ export function LoginForm() {
         return;
       }
 
-      router.push('/app/dashboard');
+      router.replace('/app/dashboard');
       router.refresh();
     } catch {
       setError('Network error. Please try again.');
