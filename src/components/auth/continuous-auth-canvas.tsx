@@ -1,6 +1,7 @@
 'use client';
 
 import { Logo } from '@/components/layout/logo';
+import { SoftDepthBackground } from '@/components/layout/soft-depth-background';
 import {
   ClipboardCheck,
   Layers,
@@ -14,51 +15,8 @@ export function ContinuousAuthCanvas({ children }: { children: React.ReactNode }
   return (
     <div className="relative min-h-screen w-full overflow-x-hidden bg-gradient-to-br from-[#f8fafc] via-[#f1f8f6]/50 to-[#edf5fa] selection:bg-teal-100 selection:text-teal-900">
       
-      {/* ========================================================================= */}
-      {/* 1. "Soft Depth" Layered Ambient Color Glows (Brand Blue, Teal, Green)   */}
-      {/* ========================================================================= */}
-      {/* Top-Left: Large Brand Blue Glow */}
-      <div 
-        aria-hidden="true"
-        className="pointer-events-none absolute -top-24 -left-24 h-[420px] w-[420px] sm:h-[520px] sm:w-[520px] lg:h-[640px] lg:w-[640px] rounded-full bg-sky-400/18 blur-[90px] lg:blur-[120px]"
-      />
-      {/* Bottom-Right: Large Brand Teal Glow */}
-      <div 
-        aria-hidden="true"
-        className="pointer-events-none absolute -bottom-32 -right-32 h-[450px] w-[450px] sm:h-[560px] sm:w-[560px] lg:h-[700px] lg:w-[700px] rounded-full bg-teal-500/18 blur-[100px] lg:blur-[130px]"
-      />
-      {/* Top-Right: Subtle Accent Green Glow */}
-      <div 
-        aria-hidden="true"
-        className="pointer-events-none absolute top-4 right-[5%] lg:right-[12%] h-[280px] w-[280px] lg:h-[380px] lg:w-[380px] rounded-full bg-emerald-400/14 blur-[80px] lg:blur-[100px]"
-      />
-      {/* Bottom-Left: Subtle Ambient Teal-Blue Softener */}
-      <div 
-        aria-hidden="true"
-        className="pointer-events-none absolute bottom-0 left-[15%] h-[320px] w-[320px] lg:h-[420px] lg:w-[420px] rounded-full bg-blue-300/12 blur-[90px]"
-      />
-
-      {/* ========================================================================= */}
-      {/* 2. Crisp, Visible Dot-Grid Texture                                        */}
-      {/* ========================================================================= */}
-      <svg
-        className="pointer-events-none absolute inset-0 h-full w-full"
-        xmlns="http://www.w3.org/2000/svg"
-        aria-hidden="true"
-      >
-        <defs>
-          <pattern
-            id="canvas-dot-grid"
-            width="32"
-            height="32"
-            patternUnits="userSpaceOnUse"
-          >
-            <circle cx="2" cy="2" r="1.1" fill="#64748b" fillOpacity="0.22" />
-          </pattern>
-        </defs>
-
-        <rect width="100%" height="100%" fill="url(#canvas-dot-grid)" />
-      </svg>
+      {/* 1. Shared Soft Depth Background Treatment (Auth Variant) */}
+      <SoftDepthBackground variant="auth" />
 
       {/* High-contrast legibility glow behind the form area to keep text & inputs crystal clear */}
       <div 
@@ -66,9 +24,7 @@ export function ContinuousAuthCanvas({ children }: { children: React.ReactNode }
         className="pointer-events-none absolute right-[10%] xl:right-[18%] top-1/2 -translate-y-1/2 h-[500px] w-[500px] rounded-full bg-white/75 blur-3xl opacity-90"
       />
 
-      {/* ========================================================================= */}
-      {/* 3. Global Centered Desktop Composition Grid                               */}
-      {/* ========================================================================= */}
+      {/* 2. Global Centered Desktop Composition Grid */}
       <div className="relative mx-auto flex min-h-screen w-full max-w-[1240px] xl:max-w-[1280px] flex-col justify-between px-6 py-8 sm:px-8 sm:py-10 lg:px-10 lg:py-12">
         
         {/* Main Content Grid */}
