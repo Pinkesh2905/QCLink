@@ -26,17 +26,18 @@ export default async function PrintLayout({
         <style dangerouslySetInnerHTML={{ __html: `
           @page {
             size: A4 portrait;
-            margin: 10mm 12mm;
+            margin: 8mm 10mm;
           }
           @media print {
             .no-print {
               display: none !important;
             }
-            body {
+            html, body {
               background: #ffffff !important;
               color: #0f172a !important;
               padding: 0 !important;
               margin: 0 !important;
+              width: 100% !important;
               -webkit-print-color-adjust: exact !important;
               print-color-adjust: exact !important;
             }
@@ -47,19 +48,16 @@ export default async function PrintLayout({
               margin: 0 !important;
               width: 100% !important;
               max-width: 100% !important;
+              min-height: 0 !important;
+              height: auto !important;
               border-radius: 0 !important;
+              page-break-after: avoid !important;
+              page-break-inside: avoid !important;
+              break-inside: avoid !important;
             }
-            .print-table-container {
-              overflow: visible !important;
-            }
-            .print-table {
-              min-width: 100% !important;
-              width: 100% !important;
-            }
-            .print-grid {
-              display: grid !important;
-              grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-              gap: 3rem !important;
+            table {
+              page-break-inside: avoid !important;
+              break-inside: avoid !important;
             }
             thead {
               display: table-header-group !important;
