@@ -1,0 +1,12 @@
+<svg viewBox="206 210 248 184" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="QCLink logo">
+  <title>QCLink logo</title>
+  <desc>Two interlocking rounded links representing the connected Item, QC spec, and Inspection records, with a checkmark badge signifying quality control.</desc>
+  <!-- Link 1: Store / Spec link (Blue) -->
+  <rect x="210" y="235" width="180" height="90" rx="45" transform="rotate(-20 300 280)" fill="#E6F1FB" stroke="#185FA5" stroke-width="6"/>
+  <!-- Link 2: Inspection link (Teal/Green) -->
+  <rect x="270" y="275" width="180" height="90" rx="45" transform="rotate(20 360 320)" fill="#E1F5EE" stroke="#0F6E56" stroke-width="6"/>
+  <!-- Quality control badge -->
+  <circle cx="404" cy="352" r="34" fill="#0F6E56" stroke="#0A4D3C" stroke-width="3"/>
+  <!-- White checkmark -->
+  <path d="M390 352 L399 363 L419 339" fill="none" stroke="#FFFFFF" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
