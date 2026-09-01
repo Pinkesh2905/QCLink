@@ -1,59 +1,72 @@
 'use client';
 
 import { useState } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
-import { Loader2, KeyRound, CheckCircle2, AlertCircle, ArrowLeft } from 'lucide-react';
+import { MobileAuthHeader } from '@/components/auth/mobile-auth-header';
+import { Loader2, KeyRound, CheckCircle2, AlertCircle, ArrowLeft, Eye, EyeOff } from 'lucide-react';
 import { resetPasswordSchema } from '@/validators/auth';
 
 export function ResetPasswordForm() {
   const searchParams = useSearchParams();
-  const router = useRouter();
   const token = searchParams.get('token');
 
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   if (!token) {
     return (
-      <Card>
-        <CardHeader className="text-center space-y-2">
-          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10 text-destructive">
-            <AlertCircle className="h-6 w-6" />
+      <div className="w-full max-w-[420px]">
+        {/* Mobile Header */}
+        <MobileAuthHeader
+          heading="Invalid Reset Link"
+          subheading="Security token missing or expired"
+        />
+
+        <div className="space-y-6 text-center">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-red-50 text-red-600 border border-red-200/80 shadow-xs">
+            <AlertCircle className="h-7 w-7" />
           </div>
-          <CardTitle className="text-xl font-bold">Invalid Reset Link</CardTitle>
-          <CardDescription>
-            This password reset link is missing a security token.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="text-sm text-muted-foreground text-center">
-          Please check your email and click the full link, or request a new password reset.
-        </CardContent>
-        <CardFooter className="flex flex-col gap-2">
-          <Button asChild className="w-full">
-            <Link href="/forgot-password">Request New Reset Link</Link>
-          </Button>
-          <Button asChild variant="ghost" className="w-full">
-            <Link href="/login">
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              Return to Login
-            </Link>
-          </Button>
-        </CardFooter>
-      </Card>
+          <div>
+            <h2 className="hidden lg:block text-2xl font-bold tracking-tight text-[#0B1528] xl:text-[28px]">
+              Invalid Reset Link
+            </h2>
+            <p className="mt-2 text-sm text-slate-600 leading-relaxed max-w-sm mx-auto">
+              This password reset link is missing a security token.
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-slate-200/80 bg-slate-50/70 p-4 text-xs text-slate-500 leading-relaxed">
+            Please check your email and click the full link, or request a new password reset.
+          </div>
+
+          <div className="flex flex-col gap-3">
+            <Button
+              asChild
+              className="h-11 sm:h-12 w-full rounded-xl bg-[#0B1528] text-sm font-semibold text-white shadow-sm hover:bg-[#14223d]"
+            >
+              <Link href="/forgot-password">Request New Reset Link</Link>
+            </Button>
+            <Button
+              asChild
+              variant="outline"
+              className="h-11 sm:h-12 w-full rounded-xl border-slate-200 text-sm font-semibold text-slate-700 hover:bg-slate-50 shadow-xs"
+            >
+              <Link href="/login">
+                <ArrowLeft className="mr-2 h-4 w-4" />
+                Return to Sign in
+              </Link>
+            </Button>
+          </div>
+        </div>
+      </div>
     );
   }
 
@@ -107,92 +120,164 @@ export function ResetPasswordForm() {
 
   if (success) {
     return (
-      <Card>
-        <CardHeader className="text-center space-y-2">
-          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
-            <CheckCircle2 className="h-6 w-6" />
+      <div className="w-full max-w-[420px]">
+        {/* Mobile Header */}
+        <MobileAuthHeader
+          heading="Password Reset Successful"
+          subheading="You can now sign in with your new password"
+        />
+
+        <div className="space-y-6 text-center">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-teal-50 text-teal-700 border border-teal-200/80 shadow-xs">
+            <CheckCircle2 className="h-7 w-7" />
           </div>
-          <CardTitle className="text-xl font-bold">Password Reset Successful</CardTitle>
-          <CardDescription>
-            Your password has been updated. All previous active sessions have been revoked for your security.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="text-sm text-muted-foreground text-center">
-          You can now sign in to QCLink using your new password.
-        </CardContent>
-        <CardFooter>
-          <Button asChild className="w-full">
-            <Link href="/login">Sign In with New Password</Link>
+          <div>
+            <h2 className="hidden lg:block text-2xl font-bold tracking-tight text-[#0B1528] xl:text-[28px]">
+              Password Reset Successful
+            </h2>
+            <p className="mt-2 text-sm text-slate-600 leading-relaxed max-w-sm mx-auto">
+              Your password has been updated. All previous active sessions have been revoked for your security.
+            </p>
+          </div>
+
+          <Button
+            asChild
+            className="h-11 sm:h-12 w-full rounded-xl bg-[#0B1528] text-sm font-semibold text-white shadow-sm hover:bg-[#14223d]"
+          >
+            <Link href="/login">Sign in with New Password</Link>
           </Button>
-        </CardFooter>
-      </Card>
+        </div>
+      </div>
     );
   }
 
   return (
-    <Card>
-      <CardHeader className="space-y-1">
-        <CardTitle className="text-2xl font-bold">Create new password</CardTitle>
-        <CardDescription>
+    <div className="w-full max-w-[420px]">
+      {/* Mobile Distinct Branded Hero Header */}
+      <MobileAuthHeader
+        heading="Create new password"
+        subheading="Enter and confirm your new password below"
+      />
+
+      {/* Desktop Header */}
+      <div className="hidden lg:block">
+        <h2 className="text-2xl font-bold tracking-tight text-[#0B1528] xl:text-[28px]">
+          Create new password
+        </h2>
+        <p className="mt-2 text-sm text-slate-500">
           Please enter and confirm your new password below.
-        </CardDescription>
-      </CardHeader>
-      <form onSubmit={handleSubmit}>
-        <CardContent className="space-y-4">
-          {error && (
-            <div className="rounded-md bg-destructive/10 px-4 py-3 text-sm text-destructive">
-              {error}
-            </div>
-          )}
-          <div className="space-y-2">
-            <Label htmlFor="password">New Password</Label>
+        </p>
+      </div>
+
+      {/* Form Error Banner */}
+      {error && (
+        <div
+          role="alert"
+          className="mt-5 flex items-start gap-2.5 rounded-lg border border-red-200/80 bg-red-50/90 px-3.5 py-2.5 text-xs text-red-700 transition-all"
+        >
+          <AlertCircle className="h-4 w-4 shrink-0 text-red-600 mt-0.5" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      {/* Form */}
+      <form onSubmit={handleSubmit} className="mt-7 space-y-4 sm:space-y-5">
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between">
+            <Label
+              htmlFor="password"
+              className="text-xs font-semibold uppercase tracking-wider text-slate-700"
+            >
+              New Password
+            </Label>
+            <span className="text-[11px] text-slate-400 font-normal">Min. 8 characters</span>
+          </div>
+          <div className="relative w-full">
             <Input
               id="password"
               name="password"
-              type="password"
+              type={showPassword ? 'text' : 'password'}
               placeholder="At least 8 characters"
               autoComplete="new-password"
               autoFocus
               required
+              className="h-11 sm:h-12 w-full rounded-xl border-slate-200/90 bg-white px-3.5 pr-10 text-sm text-slate-900 placeholder:text-slate-400 shadow-xs hover:border-slate-300 focus-visible:border-teal-600 focus-visible:ring-2 focus-visible:ring-teal-600/15 transition-all"
             />
-            {fieldErrors.password && (
-              <p className="text-xs text-destructive">{fieldErrors.password}</p>
-            )}
+            <button
+              type="button"
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
+              onClick={() => setShowPassword(!showPassword)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 focus:outline-none p-1"
+            >
+              {showPassword ? (
+                <EyeOff className="h-4 w-4" />
+              ) : (
+                <Eye className="h-4 w-4" />
+              )}
+            </button>
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="confirmPassword">Confirm Password</Label>
+          {fieldErrors.password && (
+            <p className="text-xs text-red-600 font-medium">{fieldErrors.password}</p>
+          )}
+        </div>
+
+        <div className="space-y-1.5">
+          <Label
+            htmlFor="confirmPassword"
+            className="text-xs font-semibold uppercase tracking-wider text-slate-700 block"
+          >
+            Confirm Password
+          </Label>
+          <div className="relative w-full">
             <Input
               id="confirmPassword"
               name="confirmPassword"
-              type="password"
+              type={showConfirmPassword ? 'text' : 'password'}
               placeholder="Re-enter new password"
               autoComplete="new-password"
               required
+              className="h-11 sm:h-12 w-full rounded-xl border-slate-200/90 bg-white px-3.5 pr-10 text-sm text-slate-900 placeholder:text-slate-400 shadow-xs hover:border-slate-300 focus-visible:border-teal-600 focus-visible:ring-2 focus-visible:ring-teal-600/15 transition-all"
             />
-            {fieldErrors.confirmPassword && (
-              <p className="text-xs text-destructive">{fieldErrors.confirmPassword}</p>
-            )}
-          </div>
-        </CardContent>
-        <CardFooter className="flex flex-col gap-4">
-          <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <KeyRound className="mr-2 h-4 w-4" />
-            )}
-            Set New Password
-          </Button>
-          <p className="text-sm text-muted-foreground text-center">
-            <Link
-              href="/login"
-              className="font-medium text-primary underline-offset-4 hover:underline"
+            <button
+              type="button"
+              aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
+              onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 focus:outline-none p-1"
             >
-              Cancel and return to sign in
-            </Link>
-          </p>
-        </CardFooter>
+              {showConfirmPassword ? (
+                <EyeOff className="h-4 w-4" />
+              ) : (
+                <Eye className="h-4 w-4" />
+              )}
+            </button>
+          </div>
+          {fieldErrors.confirmPassword && (
+            <p className="text-xs text-red-600 font-medium">{fieldErrors.confirmPassword}</p>
+          )}
+        </div>
+
+        <Button
+          type="submit"
+          disabled={loading}
+          className="h-11 sm:h-12 w-full rounded-xl bg-[#0B1528] text-sm font-semibold text-white shadow-sm hover:bg-[#14223d] active:bg-[#080f1e] active:scale-[0.99] transition-all disabled:opacity-60 cursor-pointer mt-6"
+        >
+          {loading ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <KeyRound className="mr-2 h-4 w-4" />
+          )}
+          Set New Password
+        </Button>
       </form>
-    </Card>
+
+      <p className="mt-5 text-center text-xs sm:text-sm text-slate-500">
+        <Link
+          href="/login"
+          className="font-semibold text-teal-700 hover:text-teal-800 hover:underline transition-colors"
+        >
+          Cancel and return to sign in
+        </Link>
+      </p>
+    </div>
   );
 }

@@ -137,3 +137,46 @@
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+@keyframes auth-float-slow {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes auth-float-delayed {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+.animate-auth-float-1 {
+  animation: auth-float-slow 7s ease-in-out infinite;
+}
+
+.animate-auth-float-2 {
+  animation: auth-float-delayed 8s ease-in-out 1.5s infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-auth-float-1,
+  .animate-auth-float-2 {
+    animation: none !important;
+  }
+}
+
+/* Hide Next.js development badges and toast elements */
+nextjs-portal,
+[data-nextjs-toast],
+[data-nextjs-dev-tools],
+#next-dev-feedback-toast {
+  display: none !important;
+}
+
+
