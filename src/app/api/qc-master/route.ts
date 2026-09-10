@@ -8,6 +8,7 @@ import { withAuth } from '@/lib/middleware';
 import { query, withTransaction } from '@/lib/db';
 import { generateUID } from '@/lib/uid';
 import { writeCreateAudit } from '@/lib/audit';
+import { syncQCMasterToSheet, appendAuditLogToSheet } from '@/lib/sheets-sync';
 import { createQCMasterSchema, computeSpecification } from '@/validators/qc-master';
 import { errorResponse, validationErrorResponse } from '@/lib/errors';
 import type { QCMasterWithLookups, SpecificationCriteria } from '@/types/db';
@@ -18,7 +19,7 @@ import type { QCMasterWithLookups, SpecificationCriteria } from '@/types/db';
 export const GET = withAuth(async (req: NextRequest) => {
   try {
     const url = req.nextUrl;
-    const page = parseInt(url.searchParams.get('page') || '1', 10);
+    const page = Math.max(1, parseInt(url.searchParams.get('page') || '1', 10) || 1);
     const pageSize = Math.min(parseInt(url.searchParams.get('pageSize') || '15', 10), 100);
     const search = url.searchParams.get('search') || '';
     const itemUID = url.searchParams.get('itemUID') || '';
@@ -151,6 +152,19 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
       return uid;
     });
+
+    await syncQCMasterToSheet(qcUID);
+    await appendAuditLogToSheet([
+      {
+        tableName: 'QCMaster',
+        recordId: qcUID,
+        actionType: 'CREATE',
+        fieldName: null,
+        oldValue: null,
+        newValue: null,
+        changedByUserID: ctx.user.userId,
+      },
+    ]);
 
     return NextResponse.json(
       { message: 'QC Master created successfully', QCUID: qcUID },

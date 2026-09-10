@@ -8,6 +8,7 @@ import { withAuth } from '@/lib/middleware';
 import { query, withTransaction } from '@/lib/db';
 import { generateUID } from '@/lib/uid';
 import { writeCreateAudit } from '@/lib/audit';
+import { syncItemToSheet, appendAuditLogToSheet } from '@/lib/sheets-sync';
 import { createItemSchema } from '@/validators/items';
 import { errorResponse, validationErrorResponse, AppError } from '@/lib/errors';
 import type { ItemWithLookups } from '@/types/db';
@@ -18,7 +19,7 @@ import type { ItemWithLookups } from '@/types/db';
 export const GET = withAuth(async (req: NextRequest) => {
   try {
     const url = req.nextUrl;
-    const page = parseInt(url.searchParams.get('page') || '1', 10);
+    const page = Math.max(1, parseInt(url.searchParams.get('page') || '1', 10) || 1);
     const pageSize = Math.min(parseInt(url.searchParams.get('pageSize') || '15', 10), 100);
     const search = url.searchParams.get('search') || '';
     const sortBy = url.searchParams.get('sortBy') || 'CreatedAt';
@@ -108,6 +109,20 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     }
 
     const itemUID = await withTransaction(async (conn) => {
+      // Re-check immediately before inserting: the check above ran outside this
+      // transaction, so a concurrent request could have inserted the same
+      // (ItemName, CategoryID) in between. This narrows — but, absent a DB-level
+      // UNIQUE constraint, can't fully close — that race; see errorResponse()'s
+      // ER_DUP_ENTRY handling for the authoritative backstop.
+      const [dupeRecheck] = await conn.execute(
+        `SELECT ItemUID FROM Items WHERE LOWER(ItemName) = LOWER(?) AND CategoryID = ? LIMIT 1`,
+        [data.ItemName, data.CategoryID]
+      ) as [Array<{ ItemUID: string }>, unknown];
+
+      if (dupeRecheck.length > 0) {
+        throw new AppError('Item already available. Kindly check!', 409, 'ItemName');
+      }
+
       const uid = await generateUID(conn, 'Item');
 
       await conn.execute(
@@ -132,6 +147,19 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
       return uid;
     });
+
+    await syncItemToSheet(itemUID);
+    await appendAuditLogToSheet([
+      {
+        tableName: 'Items',
+        recordId: itemUID,
+        actionType: 'CREATE',
+        fieldName: null,
+        oldValue: null,
+        newValue: null,
+        changedByUserID: ctx.user.userId,
+      },
+    ]);
 
     return NextResponse.json(
       { message: 'Item created successfully', ItemUID: itemUID },

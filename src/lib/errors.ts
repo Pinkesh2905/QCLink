@@ -32,6 +32,21 @@ export function errorResponse(error: unknown): NextResponse<ApiError> {
     );
   }
 
+  // MySQL unique-constraint violation — surface as a clean conflict instead of a 500.
+  // (Belt-and-suspenders: application code should already pre-check uniqueness, but
+  // only a real DB constraint fully closes the race between concurrent requests.)
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: string }).code === 'ER_DUP_ENTRY'
+  ) {
+    return NextResponse.json(
+      { error: 'This record already exists.' },
+      { status: 409 }
+    );
+  }
+
   // Log unexpected errors in development
   console.error('Unexpected error:', error);
 

@@ -1,9 +1,10 @@
 'use client';
 
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Upload, X, FileText, ExternalLink } from 'lucide-react';
+import { Upload, X, FileText, ExternalLink, Loader2 } from 'lucide-react';
 
 interface FileUploadProps {
   value: string | null;
@@ -23,6 +24,7 @@ export function FileUpload({
   disabled = false,
 }: FileUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const [isUploading, setIsUploading] = useState(false);
 
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -32,6 +34,7 @@ export function FileUpload({
     formData.append('file', file);
     formData.append('type', uploadType);
 
+    setIsUploading(true);
     try {
       const res = await fetch('/api/upload', {
         method: 'POST',
@@ -41,13 +44,17 @@ export function FileUpload({
       if (res.ok) {
         const data = await res.json();
         onChange(data.path);
+      } else {
+        const data = await res.json().catch(() => null);
+        toast.error(data?.error || 'File upload failed. Please try again.');
       }
     } catch {
-      // Error handled silently
+      toast.error('File upload failed. Please check your connection and try again.');
+    } finally {
+      setIsUploading(false);
+      // Reset input
+      if (inputRef.current) inputRef.current.value = '';
     }
-
-    // Reset input
-    if (inputRef.current) inputRef.current.value = '';
   }
 
   // Get file URL via the authenticated presigned redirect endpoint
@@ -68,7 +75,7 @@ export function FileUpload({
         accept={accept}
         onChange={handleUpload}
         className="hidden"
-        disabled={disabled}
+        disabled={disabled || isUploading}
       />
 
       {value ? (
@@ -103,11 +110,15 @@ export function FileUpload({
           type="button"
           variant="outline"
           className="w-full"
-          disabled={disabled}
+          disabled={disabled || isUploading}
           onClick={() => inputRef.current?.click()}
         >
-          <Upload className="mr-2 h-4 w-4" />
-          {label}
+          {isUploading ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <Upload className="mr-2 h-4 w-4" />
+          )}
+          {isUploading ? 'Uploading...' : label}
         </Button>
       )}
     </div>

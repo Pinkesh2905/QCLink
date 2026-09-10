@@ -8,8 +8,9 @@ import { withAuth } from '@/lib/middleware';
 import { query, withTransaction } from '@/lib/db';
 import { generateUID } from '@/lib/uid';
 import { writeCreateAudit } from '@/lib/audit';
+import { syncInspectionReportToSheet, appendAuditLogToSheet } from '@/lib/sheets-sync';
 import { createInspectionReportSchema } from '@/validators/inspection-report';
-import { errorResponse, validationErrorResponse } from '@/lib/errors';
+import { errorResponse, validationErrorResponse, AppError } from '@/lib/errors';
 import type { InspectionReportWithLookups } from '@/types/db';
 
 // ---------------------------------------------------------------------------
@@ -18,7 +19,7 @@ import type { InspectionReportWithLookups } from '@/types/db';
 export const GET = withAuth(async (req: NextRequest) => {
   try {
     const url = req.nextUrl;
-    const page = parseInt(url.searchParams.get('page') || '1', 10);
+    const page = Math.max(1, parseInt(url.searchParams.get('page') || '1', 10) || 1);
     const pageSize = Math.min(parseInt(url.searchParams.get('pageSize') || '15', 10), 100);
     const search = url.searchParams.get('search') || '';
     const sortBy = url.searchParams.get('sortBy') || 'CreatedAt';
@@ -91,6 +92,21 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
     const data = parsed.data;
 
+    // Guard against a client-side race (e.g. rapid item switch before an
+    // earlier QC-template fetch resolves) saving results snapshotted from a
+    // QC Master template that doesn't actually belong to the selected item.
+    const [qcOwner] = await query<{ ItemUID: string }>(
+      'SELECT ItemUID FROM QCMaster WHERE QCUID = ?',
+      [data.QCUID]
+    );
+    if (!qcOwner || qcOwner.ItemUID !== data.ItemUID) {
+      throw new AppError(
+        'The selected QC specification template does not belong to the selected item.',
+        400,
+        'QCUID'
+      );
+    }
+
     const iirUID = await withTransaction(async (conn) => {
       const uid = await generateUID(conn, 'IIR');
 
@@ -149,6 +165,19 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
       return uid;
     });
+
+    await syncInspectionReportToSheet(iirUID);
+    await appendAuditLogToSheet([
+      {
+        tableName: 'InspectionReports',
+        recordId: iirUID,
+        actionType: 'CREATE',
+        fieldName: null,
+        oldValue: null,
+        newValue: null,
+        changedByUserID: ctx.user.userId,
+      },
+    ]);
 
     return NextResponse.json(
       { message: 'Inspection Report created successfully', IIRUID: iirUID },

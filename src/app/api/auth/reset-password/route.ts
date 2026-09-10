@@ -4,7 +4,7 @@
 // ============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
-import { query, withTransaction } from '@/lib/db';
+import { withTransaction } from '@/lib/db';
 import { hashPassword, hashToken } from '@/lib/auth';
 import { writeAuditLog } from '@/lib/audit';
 import { resetPasswordSchema } from '@/validators/auth';
@@ -22,28 +22,35 @@ export async function POST(req: NextRequest) {
 
     const { token, password } = parsed.data;
 
-    // 1. Hash incoming token and find valid unused token row
+    // 1. Hash incoming token
     const tokenHash = await hashToken(token);
-
-    const [tokenRecord] = await query<PasswordResetToken>(
-      `SELECT * FROM PasswordResetTokens
-       WHERE TokenHash = ? AND UsedAt IS NULL AND ExpiresAt > NOW()
-       LIMIT 1`,
-      [tokenHash]
-    );
-
-    if (!tokenRecord) {
-      throw new AppError(
-        'This password reset link is invalid or has expired. Please request a new one.',
-        400
-      );
-    }
-
-    const userId = tokenRecord.UserID;
     const newPasswordHash = await hashPassword(password);
 
-    // 2. Perform password update, token invalidation, and session revocation atomically
+    // 2. Look up the token, update the password, and mark it consumed all inside
+    // one transaction with a row lock (SELECT ... FOR UPDATE) on the token row.
+    // This makes double-redemption impossible: if two requests replay the same
+    // link concurrently, the second one's re-check (after acquiring the lock)
+    // sees UsedAt already set and is rejected — a plain SELECT-then-UPDATE
+    // outside a transaction could let both requests pass validation.
     await withTransaction(async (conn) => {
+      const [tokenRows] = await conn.execute(
+        `SELECT * FROM PasswordResetTokens
+         WHERE TokenHash = ? AND UsedAt IS NULL AND ExpiresAt > NOW()
+         LIMIT 1 FOR UPDATE`,
+        [tokenHash]
+      ) as [PasswordResetToken[], unknown];
+
+      const tokenRecord = tokenRows[0];
+
+      if (!tokenRecord) {
+        throw new AppError(
+          'This password reset link is invalid or has expired. Please request a new one.',
+          400
+        );
+      }
+
+      const userId = tokenRecord.UserID;
+
       // Update user password
       await conn.execute(
         'UPDATE Users SET PasswordHash = ?, UpdatedAt = NOW() WHERE UserID = ?',

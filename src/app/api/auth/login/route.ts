@@ -5,13 +5,17 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
-import { comparePassword, signJWT, hashToken } from '@/lib/auth';
+import { comparePasswordTimingSafe, signJWT, hashToken } from '@/lib/auth';
 import { setSessionCookie } from '@/lib/session';
+import { checkRateLimit, resetRateLimit } from '@/lib/rate-limit';
 import { loginSchema } from '@/validators/auth';
 import { errorResponse, validationErrorResponse, AppError } from '@/lib/errors';
 import type { User } from '@/types/db';
 import type { ResultSetHeader } from 'mysql2';
 import { getPool } from '@/lib/db';
+
+const LOGIN_RATE_LIMIT = 10;
+const LOGIN_RATE_WINDOW_MS = 15 * 60 * 1000;
 
 export async function POST(req: NextRequest) {
   try {
@@ -23,6 +27,14 @@ export async function POST(req: NextRequest) {
     }
 
     const { email, password } = parsed.data;
+    const rateLimitKey = `login:${email.toLowerCase()}`;
+
+    if (!checkRateLimit(rateLimitKey, LOGIN_RATE_LIMIT, LOGIN_RATE_WINDOW_MS)) {
+      throw new AppError(
+        'Too many login attempts. Please wait 15 minutes and try again.',
+        429
+      );
+    }
 
     // 1. Find user by email
     const users = await query<User>(
@@ -30,17 +42,19 @@ export async function POST(req: NextRequest) {
       [email]
     );
 
-    if (users.length === 0) {
+    const user = users[0] ?? null;
+
+    // 2. Verify password. Always runs a bcrypt comparison — even when no user
+    // was found — so a nonexistent email takes the same time as a wrong
+    // password, closing the timing side-channel that would otherwise let an
+    // attacker enumerate valid emails.
+    const valid = await comparePasswordTimingSafe(password, user?.PasswordHash ?? null);
+    if (!user || !valid) {
       throw new AppError('Invalid email or password', 401);
     }
 
-    const user = users[0];
-
-    // 2. Verify password
-    const valid = await comparePassword(password, user.PasswordHash);
-    if (!valid) {
-      throw new AppError('Invalid email or password', 401);
-    }
+    // Successful credential check — forgive prior failed attempts for this email.
+    resetRateLimit(rateLimitKey);
 
     // 3. Check status — distinct messages per status
     if (user.Status === 'Pending') {

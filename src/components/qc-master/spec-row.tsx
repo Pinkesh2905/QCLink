@@ -117,7 +117,26 @@ export function SpecRow({
             value={row.CriteriaID ? String(row.CriteriaID) : ''}
             onValueChange={(val) => {
               const num = Number(val);
-              onChange({ ...row, CriteriaID: num });
+              // Clear whichever of MinVal/MaxVal/OtherValue don't apply to the
+              // newly selected criteria — otherwise a value entered under a
+              // previous criteria (e.g. MaxVal under "Range") rides along
+              // hidden in state and gets saved even though neither the UI nor
+              // the computed Specification text show it anymore.
+              const newName = (criteriaList.find((c) => c.id === num)?.name || '')
+                .trim()
+                .toLowerCase();
+              const newIsOnlyMin = newName.includes('only min');
+              const newIsOnlyMax = newName.includes('only max');
+              const newIsRange = newName.includes('range') || newName.includes('min max');
+              const newIsOther = newName.includes('other');
+
+              onChange({
+                ...row,
+                CriteriaID: num,
+                MinVal: newIsOnlyMin || newIsRange ? row.MinVal : null,
+                MaxVal: newIsOnlyMax || newIsRange ? row.MaxVal : null,
+                OtherValue: newIsOther ? row.OtherValue : null,
+              });
             }}
             disabled={checkDisabled('CriteriaID')}
           >

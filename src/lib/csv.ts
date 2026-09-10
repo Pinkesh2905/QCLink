@@ -128,7 +128,17 @@ export function formatCSVField(value: unknown): string {
     return '';
   }
 
-  const str = String(value);
+  let str = String(value);
+
+  // Formula-injection guard: a field that opens with =, +, -, or @ is
+  // interpreted as a formula by Excel/Sheets when the CSV is opened. Prefix
+  // with a leading apostrophe (Excel/Sheets treat it as plain text) so
+  // user-entered data like an Item Name can't smuggle a formula into an
+  // export.
+  if (/^[=+\-@]/.test(str)) {
+    str = `'${str}`;
+  }
+
   const needsQuotes =
     str.includes(',') ||
     str.includes('"') ||

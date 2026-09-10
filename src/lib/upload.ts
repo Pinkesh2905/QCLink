@@ -63,14 +63,18 @@ export function validateUploadFile(file: File, type: UploadType): void {
   const mime = file.type?.toLowerCase() || '';
   const ext = path.extname(file.name || '').toLowerCase();
 
-  const isImageMime = mime.startsWith('image/');
-  const isImageExt = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.svg'].includes(ext);
+  // SVG is deliberately excluded: unlike raster formats, an SVG file can carry
+  // an inline <script>, and files served from the local-disk fallback (no S3
+  // configured) are returned same-origin — a malicious SVG would execute in
+  // the app's own origin if opened directly.
+  const isImageMime = mime.startsWith('image/') && mime !== 'image/svg+xml';
+  const isImageExt = ['.jpg', '.jpeg', '.png', '.webp', '.gif'].includes(ext);
   const isPdfMime = mime === 'application/pdf';
   const isPdfExt = ext === '.pdf';
 
   if (type === 'qc-images') {
     if (!isImageMime && !isImageExt) {
-      throw new AppError('QC Master images must be valid image files (JPG, PNG, WebP, SVG)', 400);
+      throw new AppError('QC Master images must be valid image files (JPG, PNG, WebP, GIF)', 400);
     }
   } else if (type === 'invoices') {
     if (!isImageMime && !isImageExt && !isPdfMime && !isPdfExt) {

@@ -4,7 +4,7 @@
 // ============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
-import { query } from '@/lib/db';
+import { query, withTransaction } from '@/lib/db';
 import { hashPassword } from '@/lib/auth';
 import { sendSignupNotificationToAdmins } from '@/lib/email';
 import { signupSchema } from '@/validators/auth';
@@ -35,11 +35,24 @@ export async function POST(req: NextRequest) {
     // Hash password and create user
     const passwordHash = await hashPassword(password);
 
-    await query(
-      `INSERT INTO Users (Name, Email, PasswordHash, Role, Status, CreatedAt, UpdatedAt)
-       VALUES (?, ?, ?, 'User', 'Pending', NOW(), NOW())`,
-      [name, email, passwordHash]
-    );
+    await withTransaction(async (conn) => {
+      // Re-check immediately before inserting — the check above ran outside
+      // this transaction, so a concurrent signup could have raced in between.
+      const [dupeRecheck] = await conn.execute(
+        'SELECT UserID FROM Users WHERE Email = ? LIMIT 1',
+        [email]
+      ) as [Array<{ UserID: number }>, unknown];
+
+      if (dupeRecheck.length > 0) {
+        throw new AppError('An account with this email already exists', 409, 'email');
+      }
+
+      await conn.execute(
+        `INSERT INTO Users (Name, Email, PasswordHash, Role, Status, CreatedAt, UpdatedAt)
+         VALUES (?, ?, ?, 'User', 'Pending', NOW(), NOW())`,
+        [name, email, passwordHash]
+      );
+    });
 
     // Email notification to all Admins
     try {

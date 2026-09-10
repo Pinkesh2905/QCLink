@@ -24,6 +24,24 @@ export async function comparePassword(
   return bcrypt.compare(password, hash);
 }
 
+// A precomputed bcrypt hash with no known matching password, used to keep
+// login's timing constant when the email isn't found — see comparePasswordTimingSafe.
+const DUMMY_BCRYPT_HASH = '$2a$12$C6UzMDM.H6dfI/f/IKcEeO2Q4E4H4Qz4X4Z4X4Z4X4Z4X4Z4X4Z4X.';
+
+/**
+ * Always runs a bcrypt comparison, even when `hash` is null — so that a
+ * login attempt against a nonexistent email takes the same time as one
+ * against a real email with the wrong password, closing the timing
+ * side-channel an attacker could otherwise use to enumerate valid emails.
+ */
+export async function comparePasswordTimingSafe(
+  password: string,
+  hash: string | null
+): Promise<boolean> {
+  const matched = await bcrypt.compare(password, hash ?? DUMMY_BCRYPT_HASH);
+  return hash !== null && matched;
+}
+
 // ---------------------------------------------------------------------------
 // JWT
 // ---------------------------------------------------------------------------

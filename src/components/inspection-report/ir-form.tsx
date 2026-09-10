@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -79,34 +79,51 @@ export function IRForm({ initialData, isEdit = false }: IRFormProps) {
 
   const [results, setResults] = useState<InspectionResultInputSchema[]>(initialResults);
 
+  // Guards against out-of-order async responses: bumped on every itemUID
+  // change and every QC selection, so a slow response from a superseded
+  // request can be detected and dropped instead of overwriting state set by
+  // a later request (e.g. user picks Item A, then Item B before A's QC
+  // template lookup resolves — without this, A's QC/specs could land after
+  // B's and get saved as B's item with A's QC template attached).
+  const requestIdRef = useRef(0);
+
   // When itemUID changes in create mode, fetch available QC templates for this item
   useEffect(() => {
     if (!itemUID || isEdit) return;
+
+    const requestId = ++requestIdRef.current;
 
     const fetchQCTemplates = async () => {
       setLoadingQCs(true);
       try {
         const res = await fetch(`/api/qc-master?itemUID=${encodeURIComponent(itemUID)}&pageSize=50`);
+        if (requestIdRef.current !== requestId) return; // superseded by a newer item selection
         if (res.ok) {
           const json = await res.json();
+          if (requestIdRef.current !== requestId) return;
           setAvailableQCs(json.data);
           // If only 1 template available, auto-select it
           if (json.data.length === 1) {
-            handleQCSelect(json.data[0].QCUID);
+            handleQCSelect(json.data[0].QCUID, requestId);
           }
         }
       } catch {
         // Ignore
       } finally {
-        setLoadingQCs(false);
+        if (requestIdRef.current === requestId) setLoadingQCs(false);
       }
     };
 
     fetchQCTemplates();
   }, [itemUID, isEdit]);
 
-  // When a QC template is selected in create mode, snapshot its specs into results
-  const handleQCSelect = async (selectedQCUID: string) => {
+  // When a QC template is selected in create mode, snapshot its specs into results.
+  // `requestId` is passed only by the auto-select effect above; a manual user
+  // selection (onValueChange) omits it and mints its own, which also
+  // invalidates any still-in-flight auto-select for the same item.
+  const handleQCSelect = async (selectedQCUID: string, requestId?: number) => {
+    const myRequestId = requestId ?? ++requestIdRef.current;
+
     setQCUID(selectedQCUID);
     if (!selectedQCUID) {
       setResults([]);
@@ -115,8 +132,10 @@ export function IRForm({ initialData, isEdit = false }: IRFormProps) {
 
     try {
       const res = await fetch(`/api/qc-master/${encodeURIComponent(selectedQCUID)}`);
+      if (requestIdRef.current !== myRequestId) return; // superseded
       if (res.ok) {
         const qcDetail: QCMasterDetailResponse = await res.json();
+        if (requestIdRef.current !== myRequestId) return; // superseded
         // Snapshot copy: SrNo, Parameter, CriteriaID, MinVal, MaxVal, OtherValue, MethodID, FrequencyID, ResponsibilityID, ReactionPlanID, Specification
         const snapshotResults: InspectionResultInputSchema[] = qcDetail.Specifications.map((s) => ({
           SrNo: Number(s.SrNo),
@@ -138,7 +157,9 @@ export function IRForm({ initialData, isEdit = false }: IRFormProps) {
         toast.info(`Snapshotted ${snapshotResults.length} specification rows from ${selectedQCUID}`);
       }
     } catch {
-      toast.error('Failed to load QC specifications for snapshot');
+      if (requestIdRef.current === myRequestId) {
+        toast.error('Failed to load QC specifications for snapshot');
+      }
     }
   };
 

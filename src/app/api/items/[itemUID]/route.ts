@@ -7,6 +7,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/middleware';
 import { query, withTransaction } from '@/lib/db';
 import { diffFields, writeAuditDiffs, writeAuditLog } from '@/lib/audit';
+import {
+  syncItemToSheet,
+  syncQCMasterToSheet,
+  syncInspectionReportToSheet,
+  appendAuditLogToSheet,
+  type SheetAuditEntry,
+} from '@/lib/sheets-sync';
 import { enforceFieldPermissions } from '@/lib/field-permissions';
 import { updateItemSchema } from '@/validators/items';
 import { errorResponse, validationErrorResponse, AppError } from '@/lib/errors';
@@ -116,7 +123,26 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
     const changedFieldNames = diffs.map((d) => d.field);
     await enforceFieldPermissions('Items', changedFieldNames, ctx.user.role);
 
+    const cascadedQCUIDs: string[] = [];
+    const cascadedIIRUIDs: string[] = [];
+
     await withTransaction(async (conn) => {
+      // Re-check uniqueness immediately before writing (see items/route.ts POST
+      // for why: the earlier check ran outside this transaction).
+      if (
+        newName.toLowerCase() !== currentItem.ItemName.toLowerCase() ||
+        newCat !== currentItem.CategoryID
+      ) {
+        const [dupeRecheck] = await conn.execute(
+          `SELECT ItemUID FROM Items WHERE LOWER(ItemName) = LOWER(?) AND CategoryID = ? AND ItemUID != ? LIMIT 1`,
+          [newName, newCat, itemUID]
+        ) as [Array<{ ItemUID: string }>, unknown];
+
+        if (dupeRecheck.length > 0) {
+          throw new AppError('Item already available. Kindly check!', 409, 'ItemName');
+        }
+      }
+
       // Build update SET clause dynamically
       const fields: string[] = [];
       const values: unknown[] = [];
@@ -165,6 +191,7 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
             changedByUserID: ctx.user.userId,
           }));
           await writeAuditLog(conn, qcAuditEntries);
+          cascadedQCUIDs.push(...qcResult.map((row) => row.QCUID));
         }
 
         // Update InspectionReports.ItemName
@@ -190,9 +217,50 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
             changedByUserID: ctx.user.userId,
           }));
           await writeAuditLog(conn, irAuditEntries);
+          cascadedIIRUIDs.push(...irResult.map((row) => row.IIRUID));
         }
       }
     });
+
+    await syncItemToSheet(itemUID);
+
+    const sheetAuditEntries: SheetAuditEntry[] = diffs.map((d) => ({
+      tableName: 'Items',
+      recordId: itemUID,
+      actionType: 'UPDATE',
+      fieldName: d.field,
+      oldValue: d.oldValue,
+      newValue: d.newValue,
+      changedByUserID: ctx.user.userId,
+    }));
+
+    for (const qcUID of cascadedQCUIDs) {
+      await syncQCMasterToSheet(qcUID);
+      sheetAuditEntries.push({
+        tableName: 'QCMaster',
+        recordId: qcUID,
+        actionType: 'UPDATE',
+        fieldName: 'ItemName',
+        oldValue: currentItem.ItemName,
+        newValue: data.ItemName!,
+        changedByUserID: ctx.user.userId,
+      });
+    }
+
+    for (const iirUID of cascadedIIRUIDs) {
+      await syncInspectionReportToSheet(iirUID);
+      sheetAuditEntries.push({
+        tableName: 'InspectionReports',
+        recordId: iirUID,
+        actionType: 'UPDATE',
+        fieldName: 'ItemName',
+        oldValue: currentItem.ItemName,
+        newValue: data.ItemName!,
+        changedByUserID: ctx.user.userId,
+      });
+    }
+
+    await appendAuditLogToSheet(sheetAuditEntries);
 
     return NextResponse.json({ message: 'Item updated successfully' });
   } catch (error) {

@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/middleware';
 import { query, withTransaction } from '@/lib/db';
 import { diffFields, writeAuditDiffs, writeAuditLog } from '@/lib/audit';
+import { syncInspectionReportToSheet, appendAuditLogToSheet, type SheetAuditEntry } from '@/lib/sheets-sync';
 import { enforceFieldPermissions } from '@/lib/field-permissions';
 import { updateInspectionReportSchema } from '@/validators/inspection-report';
 import { errorResponse, validationErrorResponse, AppError } from '@/lib/errors';
@@ -134,20 +135,28 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
 
       for (const res of data.Results) {
         const existing = existingMap.get(res.SrNo);
-        if (existing) {
-          const oldActual = existing.Actual == null ? null : String(existing.Actual);
-          const newActual = res.Actual == null ? null : String(res.Actual);
-          if (oldActual !== newActual) {
-            changedResultFields.add('Actual');
-            resultsChanged = true;
-          }
+        if (!existing) {
+          // A posted SrNo with no matching row would otherwise update 0 rows
+          // silently (the UPDATE's WHERE clause just wouldn't match) while the
+          // client is told the save succeeded — fail loudly instead.
+          throw new AppError(
+            `Inspection result row SrNo ${res.SrNo} does not exist on this report.`,
+            400
+          );
+        }
 
-          const oldStatus = existing.ResultStatusID == null ? null : String(existing.ResultStatusID);
-          const newStatus = res.ResultStatusID == null ? null : String(res.ResultStatusID);
-          if (oldStatus !== newStatus) {
-            changedResultFields.add('ResultStatusID');
-            resultsChanged = true;
-          }
+        const oldActual = existing.Actual == null ? null : String(existing.Actual);
+        const newActual = res.Actual == null ? null : String(res.Actual);
+        if (oldActual !== newActual) {
+          changedResultFields.add('Actual');
+          resultsChanged = true;
+        }
+
+        const oldStatus = existing.ResultStatusID == null ? null : String(existing.ResultStatusID);
+        const newStatus = res.ResultStatusID == null ? null : String(res.ResultStatusID);
+        if (oldStatus !== newStatus) {
+          changedResultFields.add('ResultStatusID');
+          resultsChanged = true;
         }
       }
 
@@ -207,6 +216,32 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
         ]);
       }
     });
+
+    await syncInspectionReportToSheet(iirUID);
+
+    const sheetAuditEntries: SheetAuditEntry[] = headerDiffs.map((d) => ({
+      tableName: 'InspectionReports',
+      recordId: iirUID,
+      actionType: 'UPDATE',
+      fieldName: d.field,
+      oldValue: d.oldValue,
+      newValue: d.newValue,
+      changedByUserID: ctx.user.userId,
+    }));
+
+    if (data.Results && resultsChanged) {
+      sheetAuditEntries.push({
+        tableName: 'InspectionResults',
+        recordId: iirUID,
+        actionType: 'UPDATE',
+        fieldName: 'InspectionResults',
+        oldValue: 'Previous test results',
+        newValue: 'Updated actuals & statuses',
+        changedByUserID: ctx.user.userId,
+      });
+    }
+
+    await appendAuditLogToSheet(sheetAuditEntries);
 
     return NextResponse.json({ message: 'Inspection Report updated successfully' });
   } catch (error) {

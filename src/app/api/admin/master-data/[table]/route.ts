@@ -87,6 +87,17 @@ export const POST = withAdmin(async (req: NextRequest, ctx) => {
     }
 
     const insertId = await withTransaction(async (conn) => {
+      // Re-check immediately before inserting — the check above ran outside
+      // this transaction, so a concurrent request could have raced in between.
+      const [dupeRecheck] = await conn.execute(
+        `SELECT ${config.idCol} FROM ${config.table} WHERE LOWER(${config.nameCol}) = LOWER(?) LIMIT 1`,
+        [name]
+      ) as [Array<Record<string, unknown>>, unknown];
+
+      if (dupeRecheck.length > 0) {
+        throw new AppError(`An option with the name "${name}" already exists`, 409, 'name');
+      }
+
       let insertSql = `INSERT INTO ${config.table} (${config.nameCol}`;
       let valuesSql = 'VALUES (?';
       const values: unknown[] = [name];

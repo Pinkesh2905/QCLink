@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/middleware';
 import { query, withTransaction } from '@/lib/db';
 import { diffFields, writeAuditDiffs, writeAuditLog } from '@/lib/audit';
+import { syncQCMasterToSheet, appendAuditLogToSheet, type SheetAuditEntry } from '@/lib/sheets-sync';
 import { enforceFieldPermissions } from '@/lib/field-permissions';
 import { updateQCMasterSchema, computeSpecification } from '@/validators/qc-master';
 import { errorResponse, validationErrorResponse, AppError } from '@/lib/errors';
@@ -243,6 +244,32 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
         ]);
       }
     });
+
+    await syncQCMasterToSheet(qcUID);
+
+    const sheetAuditEntries: SheetAuditEntry[] = headerDiffs.map((d) => ({
+      tableName: 'QCMaster',
+      recordId: qcUID,
+      actionType: 'UPDATE',
+      fieldName: d.field,
+      oldValue: d.oldValue,
+      newValue: d.newValue,
+      changedByUserID: ctx.user.userId,
+    }));
+
+    if (data.Specifications && specsChanged) {
+      sheetAuditEntries.push({
+        tableName: 'QCSpecifications',
+        recordId: qcUID,
+        actionType: 'UPDATE',
+        fieldName: 'Specifications',
+        oldValue: 'Previous specifications',
+        newValue: `${data.Specifications.length} specification rows`,
+        changedByUserID: ctx.user.userId,
+      });
+    }
+
+    await appendAuditLogToSheet(sheetAuditEntries);
 
     return NextResponse.json({ message: 'QC Master updated successfully' });
   } catch (error) {

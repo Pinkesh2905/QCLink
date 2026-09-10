@@ -73,6 +73,19 @@ export const PUT = withAdmin(async (req: NextRequest, ctx) => {
     }
 
     await withTransaction(async (conn) => {
+      // Re-check immediately before writing — the check above ran outside
+      // this transaction, so a concurrent rename could have raced in between.
+      if (data.name && data.name.toLowerCase() !== String(currentRow[config.nameCol]).toLowerCase()) {
+        const [dupeRecheck] = await conn.execute(
+          `SELECT ${config.idCol} FROM ${config.table}
+           WHERE LOWER(${config.nameCol}) = LOWER(?) AND ${config.idCol} != ? LIMIT 1`,
+          [data.name, id]
+        ) as [Array<Record<string, unknown>>, unknown];
+        if (dupeRecheck.length > 0) {
+          throw new AppError(`An option with the name "${data.name}" already exists`, 409, 'name');
+        }
+      }
+
       const updateFields: string[] = [];
       const updateValues: unknown[] = [];
       const newRow: Record<string, unknown> = { ...currentRow };

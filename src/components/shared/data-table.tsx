@@ -11,6 +11,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { SearchInput } from './search-input';
 import { useDebounce } from '@/hooks/use-debounce';
 import { cn } from '@/lib/utils';
@@ -73,6 +74,14 @@ export function DataTable<T extends object>({
         const json = await res.json();
         setData(json.data);
         setTotal(json.total);
+
+        // If records were removed elsewhere and the current page no longer
+        // exists, snap back to the last real page instead of showing an
+        // empty "No records found" the user has to manually back out of.
+        const newTotalPages = Math.ceil(json.total / pageSize);
+        if (newTotalPages > 0 && page > newTotalPages) {
+          setPage(newTotalPages);
+        }
       }
     } catch (err) {
       console.error('DataTable fetch error:', err);
@@ -104,6 +113,18 @@ export function DataTable<T extends object>({
   }, [page, search, sortBy, sortOrder, pathname, router]);
 
   const totalPages = Math.ceil(total / pageSize);
+  const sortableColumns = columns.filter((c) => c.sortable);
+  // Card view (mobile) treats the first column as a compact identifier and
+  // the second as the title; everything after is shown as label/value pairs.
+  // Matches every current usage (Store Master, QC Master, Inspection
+  // Reports), which all lead with a UID column then a name/title column.
+  const [idColumn, titleColumn, ...detailColumns] = columns;
+
+  function renderCell(col: Column<T>, row: T): React.ReactNode {
+    return col.render
+      ? col.render(row)
+      : ((row as Record<string, unknown>)[col.key] as React.ReactNode) ?? '—';
+  }
 
   function handleSort(key: string) {
     if (sortBy === key) {
@@ -137,9 +158,9 @@ export function DataTable<T extends object>({
         </span>
       </div>
 
-      {/* Table Container */}
-      <div className="rounded-lg border overflow-x-auto max-w-full -mx-0.5 sm:mx-0">
-        <Table className="min-w-[600px] sm:min-w-full">
+      {/* Table Container — sm and up */}
+      <div className="hidden sm:block rounded-lg border overflow-x-auto max-w-full">
+        <Table className="min-w-full">
           <TableHeader>
             <TableRow>
               {columns.map((col) => (
@@ -194,9 +215,7 @@ export function DataTable<T extends object>({
                       key={col.key}
                       className={cn('text-xs sm:text-sm', col.className)}
                     >
-                      {col.render
-                        ? col.render(row)
-                        : ((row as Record<string, unknown>)[col.key] as React.ReactNode) ?? '—'}
+                      {renderCell(col, row)}
                     </TableCell>
                   ))}
                 </TableRow>
@@ -204,6 +223,86 @@ export function DataTable<T extends object>({
             )}
           </TableBody>
         </Table>
+      </div>
+
+      {/* Card list — below sm, replaces the table (avoids sideways-scrolling
+          columns on a phone) */}
+      <div className="sm:hidden space-y-3">
+        {sortableColumns.length > 0 && (
+          <div className="flex items-center gap-2">
+            <Select
+              value={sortBy || undefined}
+              onValueChange={(val) => {
+                setSortBy(val);
+                setSortOrder('asc');
+              }}
+            >
+              <SelectTrigger className="h-9 text-xs flex-1">
+                <SelectValue placeholder="Sort by..." />
+              </SelectTrigger>
+              <SelectContent>
+                {sortableColumns.map((col) => (
+                  <SelectItem key={col.key} value={col.key}>
+                    {col.header}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="h-9 w-9 shrink-0"
+              disabled={!sortBy}
+              onClick={() => setSortOrder((o) => (o === 'asc' ? 'desc' : 'asc'))}
+              aria-label={sortOrder === 'asc' ? 'Sort ascending' : 'Sort descending'}
+            >
+              {sortOrder === 'asc' ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />}
+            </Button>
+          </div>
+        )}
+
+        {loading ? (
+          <div className="rounded-lg border h-32 flex items-center justify-center">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : data.length === 0 ? (
+          <div className="rounded-lg border h-32 flex items-center justify-center text-sm text-muted-foreground">
+            No records found
+          </div>
+        ) : (
+          data.map((row) => (
+            <div
+              key={rowKey(row)}
+              className={cn(
+                'rounded-lg border p-3.5 space-y-2 bg-card',
+                onRowClick && 'cursor-pointer active:bg-muted/50 transition-colors'
+              )}
+              onClick={() => onRowClick?.(row)}
+            >
+              {idColumn && (
+                <div className="text-[11px] font-mono font-medium text-muted-foreground">
+                  {renderCell(idColumn, row)}
+                </div>
+              )}
+              {titleColumn && (
+                <div className="text-sm font-semibold leading-snug">
+                  {renderCell(titleColumn, row)}
+                </div>
+              )}
+              {detailColumns.length > 0 && (
+                <div className="pt-1.5 border-t grid grid-cols-2 gap-x-3 gap-y-1.5">
+                  {detailColumns.map((col) => (
+                    <div key={col.key} className="text-xs min-w-0">
+                      <div className="text-muted-foreground">{col.header}</div>
+                      <div className="font-medium truncate">{renderCell(col, row)}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))
+        )}
       </div>
 
       {/* Pagination */}

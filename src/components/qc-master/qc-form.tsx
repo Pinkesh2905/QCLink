@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -54,14 +54,20 @@ export function QCForm({ initialData, isEdit = false }: QCFormProps) {
     {
       SrNo: 1,
       Parameter: '',
-      CriteriaID: criteriaList[0]?.id || 1,
+      // 0 is not a valid lookup ID (server validation requires > 0) — it's a
+      // deliberately invalid placeholder for "not selected yet", matching
+      // SpecGrid's handleAddRow. Lookups haven't loaded on first render, so
+      // guessing "1" here would silently submit a wrong/nonexistent FK if the
+      // real first option's ID isn't 1; the effect below fills in the real
+      // first option once lookups arrive.
+      CriteriaID: criteriaList[0]?.id || 0,
       MinVal: null,
       MaxVal: null,
       OtherValue: null,
-      MethodID: methods[0]?.id || 1,
-      FrequencyID: frequencies[0]?.id || 1,
-      ResponsibilityID: responsibilities[0]?.id || 1,
-      ReactionPlanID: reactionPlans[0]?.id || 1,
+      MethodID: methods[0]?.id || 0,
+      FrequencyID: frequencies[0]?.id || 0,
+      ResponsibilityID: responsibilities[0]?.id || 0,
+      ReactionPlanID: reactionPlans[0]?.id || 0,
     },
   ];
 
@@ -69,6 +75,31 @@ export function QCForm({ initialData, isEdit = false }: QCFormProps) {
   const [itemName, setItemName] = useState(initialData?.ItemName || '');
   const [imagePath, setImagePath] = useState<string | null>(initialData?.ImagePath || null);
   const [specs, setSpecs] = useState<QCSpecInputSchema[]>(initialSpecs);
+
+  // Backfill the single default row's lookup IDs once the lookups finish
+  // loading — only for a brand-new form's still-unselected placeholder row,
+  // so this never touches a form the user has already started editing.
+  useEffect(() => {
+    if (isEdit || specs.length !== 1) return;
+    const row = specs[0];
+    if (row.Parameter !== '' || row.CriteriaID !== 0) return;
+    if (!criteriaList[0] || !methods[0] || !frequencies[0] || !responsibilities[0] || !reactionPlans[0]) return;
+
+    // Syncing local row state to async lookup data that only resolves after
+    // mount; matches the existing pattern in components/shared/data-table.tsx.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSpecs([
+      {
+        ...row,
+        CriteriaID: criteriaList[0].id,
+        MethodID: methods[0].id,
+        FrequencyID: frequencies[0].id,
+        ResponsibilityID: responsibilities[0].id,
+        ReactionPlanID: reactionPlans[0].id,
+      },
+    ]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [criteriaList, methods, frequencies, responsibilities, reactionPlans, isEdit]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
