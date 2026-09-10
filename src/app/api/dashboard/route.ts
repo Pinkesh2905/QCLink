@@ -15,8 +15,14 @@ import type {
   RecentActivityEntry,
 } from '@/types/api';
 
-export const GET = withAuth(async (_req: NextRequest, ctx) => {
+export const GET = withAuth(async (req: NextRequest, ctx) => {
   try {
+    const url = req.nextUrl;
+    const startDate = url.searchParams.get('startDate') || '';
+    const endDate = url.searchParams.get('endDate') || '';
+    const itemUID = url.searchParams.get('itemUID') || '';
+    const hasDateFilter = /^\d{4}-\d{2}-\d{2}$/.test(startDate) && /^\d{4}-\d{2}-\d{2}$/.test(endDate);
+
     // 1. Summary Counts
     const [items] = await query<{ count: number }>(
       'SELECT COUNT(*) as count FROM Items'
@@ -37,23 +43,41 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
       pendingApprovals = pending?.count ?? 0;
     }
 
-    // 2. Inspection Outcomes Trend (Grouped by InspectionDate over last 12 weeks)
+    // 2. Inspection Outcomes Trend (Grouped by InspectionDate)
+    // Defaults to the trailing 12 weeks; a custom startDate/endDate (and
+    // optional itemUID) narrows both the trend and its total below.
+    const trendConditions: string[] = [];
+    const trendParams: unknown[] = [];
+
+    if (hasDateFilter) {
+      trendConditions.push('r.InspectionDate >= ? AND r.InspectionDate <= ?');
+      trendParams.push(startDate, endDate);
+    } else {
+      trendConditions.push('r.InspectionDate >= DATE_SUB(CURDATE(), INTERVAL 12 WEEK)');
+    }
+    if (itemUID) {
+      trendConditions.push('r.ItemUID = ?');
+      trendParams.push(itemUID);
+    }
+    const trendWhere = `WHERE ${trendConditions.join(' AND ')}`;
+
     const trendRows = await query<{
       periodKey: string;
       periodLabel: string;
       statusName: string;
       cnt: number;
     }>(
-      `SELECT 
+      `SELECT
          DATE_FORMAT(r.InspectionDate, '%Y-%u') AS periodKey,
          DATE_FORMAT(r.InspectionDate, '%b %d') AS periodLabel,
          COALESCE(rs.ResultStatusName, 'Unknown') AS statusName,
          COUNT(*) AS cnt
        FROM InspectionReports r
        LEFT JOIN ResultStatus rs ON r.InspectionStatusID = rs.ResultStatusID
-       WHERE r.InspectionDate >= DATE_SUB(CURDATE(), INTERVAL 12 WEEK)
+       ${trendWhere}
        GROUP BY periodKey, periodLabel, rs.ResultStatusName
-       ORDER BY periodKey ASC`
+       ORDER BY periodKey ASC`,
+      trendParams
     );
 
     // Aggregate into distinct period points
@@ -87,10 +111,24 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
     }
 
     const inspectionTrend: InspectionTrendPoint[] = Array.from(periodMap.values());
+    const inspectionTrendTotal = inspectionTrend.reduce((sum, p) => sum + p.total, 0);
 
-    // 3. Items Below Min Level (Table is UnitOfStock, singular)
+    // 3. Items Below Min Level (Table is UnitOfStock, singular). This is a
+    // live stock snapshot, not a historical record, so only the item filter
+    // applies here — a date range has no meaning against current stock.
+    const lowStockConditions = [
+      'i.CurrentStock IS NOT NULL',
+      'i.MinLevel IS NOT NULL',
+      'i.CurrentStock < i.MinLevel',
+    ];
+    const lowStockParams: unknown[] = [];
+    if (itemUID) {
+      lowStockConditions.push('i.ItemUID = ?');
+      lowStockParams.push(itemUID);
+    }
+
     const lowStockItems = await query<LowStockItem>(
-      `SELECT 
+      `SELECT
          i.ItemUID,
          i.ItemName,
          i.CurrentStock,
@@ -100,11 +138,10 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
        FROM Items i
        LEFT JOIN Categories c ON i.CategoryID = c.CategoryID
        LEFT JOIN UnitOfStock u ON i.UOMID = u.UOMID
-       WHERE i.CurrentStock IS NOT NULL 
-         AND i.MinLevel IS NOT NULL 
-         AND i.CurrentStock < i.MinLevel
+       WHERE ${lowStockConditions.join(' AND ')}
        ORDER BY (i.MinLevel - i.CurrentStock) DESC
-       LIMIT 15`
+       LIMIT 15`,
+      lowStockParams
     );
 
     // 4. Stock Analytics & Health (Store Master)
@@ -180,6 +217,7 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
       inspectionsThisMonth: inspections?.count ?? 0,
       pendingApprovals,
       inspectionTrend,
+      inspectionTrendTotal,
       lowStockItems: lowStockItems || [],
       recentActivity,
       stockAnalytics: {

@@ -272,6 +272,7 @@ export interface StockAnalytics {
 
 export interface DashboardData extends DashboardCounts {
   inspectionTrend: InspectionTrendPoint[];
+  inspectionTrendTotal: number;
   lowStockItems: LowStockItem[];
   recentActivity: RecentActivityEntry[];
   stockAnalytics: StockAnalytics;

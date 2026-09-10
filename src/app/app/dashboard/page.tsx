@@ -1,12 +1,15 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
+import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { useSession } from '@/hooks/use-session';
 import { cn } from '@/lib/utils';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { ItemCombobox } from '@/components/shared/item-combobox';
 import {
   Package,
   ClipboardCheck,
@@ -25,6 +28,8 @@ import {
   HelpCircle,
   BarChart3,
   Layers,
+  Filter,
+  X,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -53,16 +58,44 @@ function getActionBadge(actionType: string) {
   }
 }
 
+// Formats using the Date's local calendar fields — NOT toISOString(), which
+// converts to UTC first and would shift the date backward for any timezone
+// ahead of UTC (e.g. IST), the exact bug documented in src/lib/datetime.ts.
+function formatYMD(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 export default function DashboardPage() {
   const { user } = useSession();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  async function fetchDashboard() {
+  const [startDate, setStartDate] = useState(searchParams.get('startDate') || '');
+  const [endDate, setEndDate] = useState(searchParams.get('endDate') || '');
+  const [itemUID, setItemUID] = useState(searchParams.get('itemUID') || '');
+  const [itemName, setItemName] = useState(searchParams.get('itemName') || '');
+
+  const hasActiveFilter = !!(startDate || endDate || itemUID);
+
+  const fetchDashboard = useCallback(async () => {
+    setLoading(true);
     try {
       setError(null);
-      const res = await fetch('/api/dashboard');
+      const params = new URLSearchParams();
+      if (startDate) params.set('startDate', startDate);
+      if (endDate) params.set('endDate', endDate);
+      if (itemUID) params.set('itemUID', itemUID);
+      const qs = params.toString();
+
+      const res = await fetch(`/api/dashboard${qs ? `?${qs}` : ''}`);
       if (res.ok) {
         setData(await res.json());
       } else {
@@ -75,11 +108,48 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [startDate, endDate, itemUID]);
 
   useEffect(() => {
     fetchDashboard();
-  }, []);
+  }, [fetchDashboard]);
+
+  // Keep filters shareable/bookmarkable via the URL
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (startDate) params.set('startDate', startDate);
+    if (endDate) params.set('endDate', endDate);
+    if (itemUID) params.set('itemUID', itemUID);
+    if (itemName) params.set('itemName', itemName);
+    const qs = params.toString();
+    router.replace(`${pathname}${qs ? `?${qs}` : ''}`, { scroll: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startDate, endDate, itemUID, itemName]);
+
+  function applyPreset(preset: 'thisMonth' | 'last30' | 'last90' | 'thisYear') {
+    const today = new Date();
+    let from: Date;
+    if (preset === 'thisMonth') {
+      from = new Date(today.getFullYear(), today.getMonth(), 1);
+    } else if (preset === 'last30') {
+      from = new Date(today);
+      from.setDate(from.getDate() - 30);
+    } else if (preset === 'last90') {
+      from = new Date(today);
+      from.setDate(from.getDate() - 90);
+    } else {
+      from = new Date(today.getFullYear(), 0, 1);
+    }
+    setStartDate(formatYMD(from));
+    setEndDate(formatYMD(today));
+  }
+
+  function clearFilters() {
+    setStartDate('');
+    setEndDate('');
+    setItemUID('');
+    setItemName('');
+  }
 
   const isAdmin = user?.Role === 'Admin';
 
@@ -212,6 +282,87 @@ export default function DashboardPage() {
         ))}
       </div>
 
+      {/* Filters — scope the Inspection Outcomes chart and stock alerts below */}
+      <Card className="w-full min-w-0">
+        <CardContent className="p-3.5 sm:p-4">
+          <div className="flex flex-col lg:flex-row lg:items-end gap-3">
+            <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground shrink-0 lg:pb-2">
+              <Filter className="h-3.5 w-3.5" />
+              Filters
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 flex-1 min-w-0">
+              <div className="space-y-1 col-span-1">
+                <label className="text-[11px] font-medium text-muted-foreground">From</label>
+                <Input
+                  type="date"
+                  value={startDate}
+                  max={endDate || undefined}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="h-9 text-xs"
+                />
+              </div>
+              <div className="space-y-1 col-span-1">
+                <label className="text-[11px] font-medium text-muted-foreground">To</label>
+                <Input
+                  type="date"
+                  value={endDate}
+                  min={startDate || undefined}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="h-9 text-xs"
+                />
+              </div>
+              <div className="space-y-1 col-span-2 sm:col-span-2">
+                <label className="text-[11px] font-medium text-muted-foreground">Item</label>
+                <div className="flex items-center gap-1.5">
+                  <ItemCombobox
+                    value={itemUID}
+                    onSelect={(item) => {
+                      setItemUID(item.ItemUID);
+                      setItemName(item.ItemName);
+                    }}
+                    placeholder="All items"
+                    className="h-9 text-xs"
+                  />
+                  {itemUID && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-9 w-9 shrink-0 text-muted-foreground hover:text-foreground"
+                      onClick={() => { setItemUID(''); setItemName(''); }}
+                      aria-label="Clear item filter"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5 flex-wrap shrink-0">
+              <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => applyPreset('thisMonth')}>
+                This Month
+              </Button>
+              <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => applyPreset('last30')}>
+                Last 30 Days
+              </Button>
+              <Button variant="outline" size="sm" className="h-8 text-xs hidden sm:inline-flex" onClick={() => applyPreset('last90')}>
+                Last 90 Days
+              </Button>
+              <Button variant="outline" size="sm" className="h-8 text-xs hidden sm:inline-flex" onClick={() => applyPreset('thisYear')}>
+                This Year
+              </Button>
+              {hasActiveFilter && (
+                <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground" onClick={clearFilters}>
+                  <X className="mr-1 h-3.5 w-3.5" />
+                  Clear
+                </Button>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Main Analytics Grid */}
       <div className="grid gap-6 grid-cols-1 lg:grid-cols-12 min-w-0">
         {/* Inspection Outcomes Trend Chart (7 or 8 cols) */}
@@ -224,7 +375,11 @@ export default function DashboardPage() {
                   <span>Inspection Outcomes Over Time</span>
                 </CardTitle>
                 <CardDescription className="text-xs mt-0.5">
-                  Outcome distribution (Accept vs. Deviation vs. Reject) over past 12 weeks
+                  {loading
+                    ? 'Loading…'
+                    : hasActiveFilter
+                    ? `${data?.inspectionTrendTotal ?? 0} inspection${data?.inspectionTrendTotal === 1 ? '' : 's'}${itemName ? ` for ${itemName}` : ''}${startDate || endDate ? ` (${startDate || '…'} to ${endDate || '…'})` : ''}`
+                    : `${data?.inspectionTrendTotal ?? 0} inspections over the past 12 weeks`}
                 </CardDescription>
               </div>
               <Button asChild variant="ghost" size="sm" className="text-xs self-start sm:self-auto shrink-0 h-8 px-2">
@@ -303,7 +458,9 @@ export default function DashboardPage() {
                   <span>Items Below Minimum Level</span>
                 </CardTitle>
                 <CardDescription className="text-xs">
-                  Inventory items requiring reorder or restock attention
+                  {itemName
+                    ? `Stock status for ${itemName}`
+                    : 'Inventory items requiring reorder or restock attention'}
                 </CardDescription>
               </div>
               <Button asChild variant="outline" size="sm" className="text-xs self-start sm:self-auto shrink-0 h-8">
