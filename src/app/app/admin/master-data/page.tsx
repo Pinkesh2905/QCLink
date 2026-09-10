@@ -185,7 +185,7 @@ export default function MasterDataManagerPage() {
           </CardHeader>
 
           <CardContent className="p-4 sm:p-6 pt-0">
-            <div className="rounded-md border overflow-x-auto max-w-full">
+            <div className="hidden sm:block rounded-md border overflow-x-auto max-w-full">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -256,6 +256,61 @@ export default function MasterDataManagerPage() {
                   )}
                 </TableBody>
               </Table>
+            </div>
+
+            {/* Card list — below sm */}
+            <div className="sm:hidden space-y-3">
+              {loading ? (
+                <div className="rounded-md border h-32 flex items-center justify-center">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : options.length === 0 ? (
+                <div className="rounded-md border h-32 flex items-center justify-center text-sm text-muted-foreground text-center px-4">
+                  No options configured in this table
+                </div>
+              ) : (
+                options.map((opt) => (
+                  <div key={opt.id} className="rounded-md border p-3.5 space-y-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="text-[11px] font-mono text-muted-foreground">#{opt.id}</div>
+                        <div className="font-medium truncate">{opt.name}</div>
+                      </div>
+                      {opt.isActive === 1 ? (
+                        <Badge className="bg-emerald-50 text-emerald-700 border-emerald-300 shrink-0">
+                          Active
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="bg-zinc-100 text-zinc-600 border-zinc-300 shrink-0">
+                          Inactive
+                        </Badge>
+                      )}
+                    </div>
+
+                    {currentTab.hasIsActive && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 w-full text-xs"
+                        disabled={actionLoading === opt.id}
+                        onClick={() => handleToggleActive(opt.id, opt.isActive)}
+                      >
+                        {opt.isActive === 1 ? (
+                          <>
+                            <PowerOff className="mr-1 h-3 w-3 text-destructive" />
+                            Deactivate
+                          </>
+                        ) : (
+                          <>
+                            <Power className="mr-1 h-3 w-3 text-emerald-600" />
+                            Reactivate
+                          </>
+                        )}
+                      </Button>
+                    )}
+                  </div>
+                ))
+              )}
             </div>
           </CardContent>
         </Card>

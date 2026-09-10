@@ -214,8 +214,8 @@ export default function AuditLogViewerPage() {
           <span>{total} total audit records</span>
         </div>
 
-        <div className="rounded-lg border bg-card overflow-x-auto max-w-full">
-          <Table className="min-w-[800px] sm:min-w-full">
+        <div className="hidden sm:block rounded-lg border bg-card overflow-x-auto max-w-full">
+          <Table className="min-w-full">
             <TableHeader>
               <TableRow>
                 <TableHead className="w-40">Timestamp</TableHead>
@@ -278,6 +278,56 @@ export default function AuditLogViewerPage() {
               )}
             </TableBody>
           </Table>
+        </div>
+
+        {/* Card list — below sm */}
+        <div className="sm:hidden space-y-3">
+          {loading ? (
+            <div className="rounded-lg border h-32 flex items-center justify-center">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : logs.length === 0 ? (
+            <div className="rounded-lg border h-32 flex items-center justify-center text-sm text-muted-foreground text-center px-4">
+              No audit records matching the selected filters
+            </div>
+          ) : (
+            logs.map((log) => (
+              <div key={log.AuditID} className="rounded-lg border bg-card p-3.5 space-y-2 text-xs">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">
+                    {new Date(log.ChangedAt).toLocaleString('en-IN', {
+                      day: '2-digit',
+                      month: 'short',
+                      year: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </span>
+                  {getActionBadge(log.ActionType)}
+                </div>
+
+                <div className="flex items-baseline gap-1.5">
+                  <span className="font-medium text-foreground">{log.TableName}</span>
+                  <span className="font-mono text-muted-foreground">{log.RecordID}</span>
+                </div>
+
+                {log.FieldName && (
+                  <div className="pt-1.5 border-t space-y-1">
+                    <div className="font-medium">{log.FieldName}</div>
+                    <div className="flex items-start gap-1.5">
+                      <span className="text-red-600 break-all">{log.OldValue ?? '—'}</span>
+                      <span className="text-muted-foreground shrink-0">→</span>
+                      <span className="text-emerald-600 font-medium break-all">{log.NewValue ?? '—'}</span>
+                    </div>
+                  </div>
+                )}
+
+                <div className="pt-1.5 border-t text-muted-foreground">
+                  {log.ChangedByName || `User #${log.ChangedByUserID}`}
+                </div>
+              </div>
+            ))
+          )}
         </div>
 
         {/* Pagination */}

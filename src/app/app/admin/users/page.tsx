@@ -121,8 +121,8 @@ export default function UserDirectoryPage() {
         </div>
       </div>
 
-      <div className="rounded-lg border bg-card overflow-x-auto max-w-full">
-        <Table className="min-w-[620px] sm:min-w-full">
+      <div className="hidden sm:block rounded-lg border bg-card overflow-x-auto max-w-full">
+        <Table className="min-w-full">
           <TableHeader>
             <TableRow>
               <TableHead>User</TableHead>
@@ -232,6 +232,107 @@ export default function UserDirectoryPage() {
             )}
           </TableBody>
         </Table>
+      </div>
+
+      {/* Card list — below sm */}
+      <div className="sm:hidden space-y-3">
+        {loading ? (
+          <div className="rounded-lg border h-32 flex items-center justify-center">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : users.length === 0 ? (
+          <div className="rounded-lg border h-32 flex items-center justify-center text-sm text-muted-foreground">
+            No users found
+          </div>
+        ) : (
+          users.map((u) => {
+            const isSelf = currentSessionUser?.UserID === u.UserID;
+            const isRowLoading = actionLoading === u.UserID;
+
+            return (
+              <div key={u.UserID} className="rounded-lg border bg-card p-3.5 space-y-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="font-medium truncate">{u.Name}</span>
+                    {isSelf && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-mono shrink-0">
+                        You
+                      </span>
+                    )}
+                  </div>
+                  {getStatusBadge(u.Status)}
+                </div>
+
+                <div className="text-xs text-muted-foreground truncate">{u.Email}</div>
+
+                <div className="pt-1.5 border-t grid grid-cols-2 gap-x-3 gap-y-2 items-end">
+                  <div>
+                    <div className="text-xs text-muted-foreground mb-1">Role</div>
+                    {isSelf ? (
+                      <span className="text-xs font-semibold px-2 py-1 rounded bg-muted">
+                        {u.Role}
+                      </span>
+                    ) : (
+                      <Select
+                        value={u.Role}
+                        onValueChange={(val) =>
+                          handleUpdate(u.UserID, { Role: val as UserRole })
+                        }
+                        disabled={isRowLoading}
+                      >
+                        <SelectTrigger className="h-8 w-full text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="User">User</SelectItem>
+                          <SelectItem value="Admin">Admin</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground mb-1">Joined</div>
+                    <div className="text-xs">
+                      {new Date(u.CreatedAt).toLocaleDateString('en-IN', {
+                        day: '2-digit',
+                        month: 'short',
+                        year: 'numeric',
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                {!isSelf && (
+                  <div className="pt-1">
+                    {u.Status === 'Active' ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 w-full text-xs text-destructive hover:bg-destructive/10"
+                        disabled={isRowLoading}
+                        onClick={() => handleUpdate(u.UserID, { Status: 'Deactivated' })}
+                      >
+                        <UserX className="mr-1 h-3.5 w-3.5" />
+                        Deactivate
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 w-full text-xs text-emerald-600 hover:bg-emerald-50"
+                        disabled={isRowLoading}
+                        onClick={() => handleUpdate(u.UserID, { Status: 'Active' })}
+                      >
+                        <UserCheck className="mr-1 h-3.5 w-3.5" />
+                        Activate
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })
+        )}
       </div>
     </div>
   );
