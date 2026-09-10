@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 import { Sidebar } from './sidebar';
 import { Header } from './header';
-import { SoftDepthBackground } from './soft-depth-background';
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -56,9 +55,8 @@ export function AppShell({ children }: AppShellProps) {
         onCloseMobile={() => setMobileOpen(false)}
       />
 
-      {/* Main Content Area with Subtle Soft-Depth Background */}
+      {/* Main Content Area */}
       <div className="relative flex flex-1 flex-col min-w-0 w-full md:ml-64 transition-all min-h-screen">
-        <SoftDepthBackground variant="app" />
         <Header
           onToggleMobileNav={() => setMobileOpen((prev) => !prev)}
         />

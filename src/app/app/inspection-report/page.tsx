@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { DataTable, type Column } from '@/components/shared/data-table';
 import { ExportButton } from '@/components/shared/export-button';
 import { Plus } from 'lucide-react';
+import { formatDateIST } from '@/lib/datetime';
 import type { InspectionReportWithLookups } from '@/types/db';
 
 const columns: Column<InspectionReportWithLookups>[] = [
@@ -55,12 +56,7 @@ const columns: Column<InspectionReportWithLookups>[] = [
     header: 'Updated',
     sortable: true,
     className: 'w-32',
-    render: (row) =>
-      new Date(row.UpdatedAt).toLocaleDateString('en-IN', {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-      }),
+    render: (row) => formatDateIST(row.UpdatedAt),
   },
 ];
 

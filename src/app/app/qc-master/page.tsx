@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { DataTable, type Column } from '@/components/shared/data-table';
 import { ExportButton } from '@/components/shared/export-button';
 import { Plus } from 'lucide-react';
+import { formatDateIST } from '@/lib/datetime';
 import type { QCMasterWithLookups } from '@/types/db';
 
 const columns: Column<QCMasterWithLookups>[] = [
@@ -27,12 +28,7 @@ const columns: Column<QCMasterWithLookups>[] = [
     header: 'Updated',
     sortable: true,
     className: 'w-36',
-    render: (row) =>
-      new Date(row.UpdatedAt).toLocaleDateString('en-IN', {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-      }),
+    render: (row) => formatDateIST(row.UpdatedAt),
   },
 ];
 

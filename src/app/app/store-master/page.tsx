@@ -8,6 +8,7 @@ import { ExportButton } from '@/components/shared/export-button';
 import { ImportModal } from '@/components/store-master/import-modal';
 import { useSession } from '@/hooks/use-session';
 import { Plus, Upload } from 'lucide-react';
+import { formatDateIST } from '@/lib/datetime';
 import type { ItemWithLookups } from '@/types/db';
 
 const columns: Column<ItemWithLookups>[] = [
@@ -34,12 +35,7 @@ const columns: Column<ItemWithLookups>[] = [
     header: 'Updated',
     sortable: true,
     className: 'w-36',
-    render: (row) =>
-      new Date(row.UpdatedAt).toLocaleDateString('en-IN', {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-      }),
+    render: (row) => formatDateIST(row.UpdatedAt),
   },
 ];
 

@@ -21,6 +21,7 @@ import {
   type InspectionResultInputSchema,
 } from '@/validators/inspection-report';
 import { Loader2, History, ArrowLeft, Save, Printer } from 'lucide-react';
+import { formatDateTimeIST } from '@/lib/datetime';
 import type { InspectionReportDetailResponse, QCMasterDetailResponse } from '@/types/api';
 import type { QCMasterWithLookups } from '@/types/db';
 
@@ -337,7 +338,7 @@ export function IRForm({ initialData, isEdit = false }: IRFormProps) {
             <div className="space-y-2">
               <Label className="text-muted-foreground">Created At</Label>
               <Input
-                value={new Date(initialData.CreatedAt).toLocaleString('en-IN')}
+                value={formatDateTimeIST(initialData.CreatedAt, { second: '2-digit' })}
                 disabled
                 className="bg-muted text-muted-foreground"
               />
@@ -345,7 +346,7 @@ export function IRForm({ initialData, isEdit = false }: IRFormProps) {
             <div className="space-y-2">
               <Label className="text-muted-foreground">Last Updated At</Label>
               <Input
-                value={new Date(initialData.UpdatedAt).toLocaleString('en-IN')}
+                value={formatDateTimeIST(initialData.UpdatedAt, { second: '2-digit' })}
                 disabled
                 className="bg-muted text-muted-foreground"
               />

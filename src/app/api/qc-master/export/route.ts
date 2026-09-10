@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/middleware';
 import { query } from '@/lib/db';
 import { generateCSV } from '@/lib/csv';
+import { formatISTForExport } from '@/lib/datetime';
 import { errorResponse } from '@/lib/errors';
 
 export const GET = withAuth(async (req: NextRequest) => {
@@ -113,8 +114,8 @@ export const GET = withAuth(async (req: NextRequest) => {
       ReactionPlan: r.ReactionPlanName || '',
       Specification: r.Specification || '',
       Owner: r.OwnerName || '',
-      CreatedAt: new Date(r.CreatedAt).toISOString(),
-      UpdatedAt: new Date(r.UpdatedAt).toISOString(),
+      CreatedAt: formatISTForExport(r.CreatedAt),
+      UpdatedAt: formatISTForExport(r.UpdatedAt),
     }));
 
     const csvContent = generateCSV(headers, exportRows);

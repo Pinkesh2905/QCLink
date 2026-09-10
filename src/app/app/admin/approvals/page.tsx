@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Check, X, Loader2, UserCheck, Clock } from 'lucide-react';
+import { formatDateTimeIST } from '@/lib/datetime';
 import type { SafeUser } from '@/types/db';
 
 export default function UserApprovalsPage() {
@@ -111,13 +112,7 @@ export default function UserApprovalsPage() {
                   <Clock className="h-3.5 w-3.5" />
                   <span>
                     Requested on{' '}
-                    {new Date(u.CreatedAt).toLocaleDateString('en-IN', {
-                      day: '2-digit',
-                      month: 'short',
-                      year: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
+                    {formatDateTimeIST(u.CreatedAt)}
                   </span>
                 </div>
 

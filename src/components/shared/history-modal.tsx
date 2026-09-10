@@ -10,6 +10,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { formatDateTimeIST } from '@/lib/datetime';
 import type { AuditLogWithUser } from '@/types/db';
 
 interface HistoryModalProps {
@@ -86,14 +87,7 @@ export function HistoryModal({
   }
 
   function formatDate(dateStr: string | Date): string {
-    const d = new Date(dateStr);
-    return d.toLocaleString('en-IN', {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+    return formatDateTimeIST(dateStr);
   }
 
   return (

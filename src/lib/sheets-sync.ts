@@ -8,6 +8,7 @@
 
 import { query } from './db';
 import { upsertRow, appendRows, replaceChildRows, safeSync } from './sheets';
+import { formatISTForExport } from './datetime';
 import type {
   ItemWithLookups,
   QCMasterWithLookups,
@@ -79,7 +80,7 @@ export async function syncItemToSheet(itemUID: string): Promise<void> {
       item.ItemUID, item.ItemName, item.CategoryName, item.UOMName,
       item.SubCategoryName ?? '', item.Make ?? '', item.Size ?? '',
       item.CurrentStock ?? '', item.MPQ ?? '', item.MinLevel ?? '',
-      item.OwnerName, String(item.CreatedAt), String(item.UpdatedAt),
+      item.OwnerName, formatISTForExport(item.CreatedAt), formatISTForExport(item.UpdatedAt),
     ]);
   });
 }
@@ -102,7 +103,7 @@ export async function syncQCMasterToSheet(qcUID: string): Promise<void> {
 
     await upsertRow(QC_MASTER_TAB, QC_MASTER_HEADERS, qcUID, [
       header.QCUID, header.ItemUID, header.ItemName, header.SpecCount,
-      header.OwnerName, String(header.CreatedAt), String(header.UpdatedAt),
+      header.OwnerName, formatISTForExport(header.CreatedAt), formatISTForExport(header.UpdatedAt),
     ]);
 
     const specs = await query<QCSpecificationWithLookups>(
@@ -151,7 +152,7 @@ export async function syncInspectionReportToSheet(iirUID: string): Promise<void>
     await upsertRow(INSPECTION_REPORTS_TAB, INSPECTION_REPORTS_HEADERS, iirUID, [
       header.IIRUID, String(header.InspectionDate), header.ItemUID, header.ItemName,
       header.QCUID, header.GRNNo, header.InspectionStatusName ?? '',
-      header.OwnerName, String(header.CreatedAt), String(header.UpdatedAt),
+      header.OwnerName, formatISTForExport(header.CreatedAt), formatISTForExport(header.UpdatedAt),
     ]);
 
     const results = await query<InspectionResultWithLookups>(
@@ -200,7 +201,7 @@ export interface SheetAuditEntry {
 export async function appendAuditLogToSheet(entries: SheetAuditEntry[]): Promise<void> {
   if (entries.length === 0) return;
   await safeSync(`AuditLog:${entries.length} entries`, async () => {
-    const changedAt = new Date().toISOString();
+    const changedAt = formatISTForExport(new Date());
     await appendRows(
       AUDIT_LOG_TAB,
       AUDIT_LOG_HEADERS,

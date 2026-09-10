@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSession } from '@/hooks/use-session';
+import { cn } from '@/lib/utils';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -36,21 +37,8 @@ import {
   Legend,
   Cell,
 } from 'recharts';
-import { formatDistanceToNow, parseISO, isValid } from 'date-fns';
+import { formatRelativeIST } from '@/lib/datetime';
 import type { DashboardData } from '@/types/api';
-
-function formatRelativeTime(dateStr: string | Date | null | undefined): string {
-  if (!dateStr) return '—';
-  try {
-    const d = typeof dateStr === 'string' ? parseISO(dateStr) : dateStr;
-    if (isValid(d)) {
-      return formatDistanceToNow(d, { addSuffix: true });
-    }
-  } catch {
-    // fallback
-  }
-  return String(dateStr);
-}
 
 function getActionBadge(actionType: string) {
   switch (actionType.toUpperCase()) {
@@ -64,8 +52,6 @@ function getActionBadge(actionType: string) {
       return <Badge variant="outline">{actionType}</Badge>;
   }
 }
-
-const CATEGORY_COLORS = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#06b6d4', '#ec4899', '#6366f1', '#64748b'];
 
 export default function DashboardPage() {
   const { user } = useSession();
@@ -101,22 +87,19 @@ export default function DashboardPage() {
     {
       title: 'Total Items',
       value: data?.totalItems ?? 0,
-      icon: <Package className="h-5 w-5 text-blue-600 dark:text-blue-400" />,
-      bg: 'bg-blue-50 dark:bg-blue-950/50',
+      icon: <Package className="h-5 w-5" />,
       href: '/app/store-master',
     },
     {
       title: 'QC Templates',
       value: data?.totalQCTemplates ?? 0,
-      icon: <ClipboardCheck className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />,
-      bg: 'bg-emerald-50 dark:bg-emerald-950/50',
+      icon: <ClipboardCheck className="h-5 w-5" />,
       href: '/app/qc-master',
     },
     {
       title: 'Inspections This Month',
       value: data?.inspectionsThisMonth ?? 0,
-      icon: <FileText className="h-5 w-5 text-violet-600 dark:text-violet-400" />,
-      bg: 'bg-violet-50 dark:bg-violet-950/50',
+      icon: <FileText className="h-5 w-5" />,
       href: '/app/inspection-report',
     },
     ...(isAdmin
@@ -124,18 +107,18 @@ export default function DashboardPage() {
           {
             title: 'Pending Approvals',
             value: data?.pendingApprovals ?? 0,
-            icon: <Users className="h-5 w-5 text-amber-600 dark:text-amber-400" />,
-            bg: 'bg-amber-50 dark:bg-amber-950/50',
+            icon: <Users className="h-5 w-5" />,
             href: '/app/admin/approvals',
+            attention: (data?.pendingApprovals ?? 0) > 0,
           },
         ]
       : [
           {
             title: 'Low Stock Alerts',
             value: data?.lowStockItems?.length ?? 0,
-            icon: <AlertTriangle className="h-5 w-5 text-rose-600 dark:text-rose-400" />,
-            bg: 'bg-rose-50 dark:bg-rose-950/50',
+            icon: <AlertTriangle className="h-5 w-5" />,
             href: '/app/store-master',
+            attention: (data?.lowStockItems?.length ?? 0) > 0,
           },
         ]),
   ];
@@ -205,7 +188,14 @@ export default function DashboardPage() {
                 <CardTitle className="text-xs sm:text-sm font-medium text-muted-foreground group-hover:text-foreground transition-colors truncate">
                   {card.title}
                 </CardTitle>
-                <div className={`rounded-lg p-2 shrink-0 ${card.bg}`}>{card.icon}</div>
+                <div
+                  className={cn(
+                    'rounded-lg p-2 shrink-0',
+                    card.attention ? 'bg-destructive/10 text-destructive' : 'bg-muted text-muted-foreground'
+                  )}
+                >
+                  {card.icon}
+                </div>
               </CardHeader>
               <CardContent>
                 {loading ? (
@@ -519,16 +509,13 @@ export default function DashboardPage() {
                       <p className="text-xs text-muted-foreground text-center py-2">No category stock data available.</p>
                     ) : (
                       <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                        {data.stockAnalytics.categories.map((cat, idx) => (
+                        {data.stockAnalytics.categories.map((cat) => (
                           <div
                             key={cat.categoryName}
                             className="flex items-center justify-between rounded-md border p-2 text-xs hover:bg-muted/40 transition-colors"
                           >
                             <div className="flex items-center gap-2 min-w-0 pr-2">
-                              <span
-                                className="h-2.5 w-2.5 rounded-full shrink-0"
-                                style={{ backgroundColor: CATEGORY_COLORS[idx % CATEGORY_COLORS.length] }}
-                              />
+                              <span className="h-2.5 w-2.5 rounded-full shrink-0 bg-foreground/30" />
                               <span className="font-medium truncate">{cat.categoryName}</span>
                             </div>
                             <div className="flex items-center gap-2 shrink-0 font-mono text-[11px]">
@@ -597,7 +584,7 @@ export default function DashboardPage() {
                           </div>
                           <span className="text-[10px] text-muted-foreground flex items-center gap-1 shrink-0 ml-auto">
                             <Clock className="h-3 w-3" />
-                            {formatRelativeTime(act.ChangedAt)}
+                            {formatRelativeIST(act.ChangedAt)}
                           </span>
                         </div>
 

@@ -14,6 +14,7 @@ import { useSession } from '@/hooks/use-session';
 import { useFieldPermissions } from '@/hooks/use-field-permissions';
 import { createItemSchema, updateItemSchema } from '@/validators/items';
 import { Loader2, History, ArrowLeft, Save } from 'lucide-react';
+import { formatDateTimeIST } from '@/lib/datetime';
 import type { ItemWithLookups } from '@/types/db';
 
 interface ItemFormProps {
@@ -181,7 +182,7 @@ export function ItemForm({ initialData, isEdit = false }: ItemFormProps) {
             <div className="space-y-2">
               <Label className="text-muted-foreground">Created At</Label>
               <Input
-                value={new Date(initialData.CreatedAt).toLocaleString('en-IN')}
+                value={formatDateTimeIST(initialData.CreatedAt, { second: '2-digit' })}
                 disabled
                 className="bg-muted text-muted-foreground"
               />
@@ -189,7 +190,7 @@ export function ItemForm({ initialData, isEdit = false }: ItemFormProps) {
             <div className="space-y-2">
               <Label className="text-muted-foreground">Last Updated At</Label>
               <Input
-                value={new Date(initialData.UpdatedAt).toLocaleString('en-IN')}
+                value={formatDateTimeIST(initialData.UpdatedAt, { second: '2-digit' })}
                 disabled
                 className="bg-muted text-muted-foreground"
               />

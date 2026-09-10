@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { query } from '@/lib/db';
 import { validateSession } from '@/lib/session';
 import { PrintActions } from '@/components/print/print-actions';
+import { formatDateIST } from '@/lib/datetime';
 import type {
   QCMasterWithLookups,
   QCSpecificationWithLookups,
@@ -72,13 +73,7 @@ export default async function QCPrintPage({ params }: QCPrintPageProps) {
     headerPadding = 'py-1 px-1 sm:py-1.5 sm:px-1.5';
   }
 
-  const formattedCreatedDate = qc.CreatedAt
-    ? new Date(qc.CreatedAt).toLocaleDateString('en-IN', {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-      })
-    : '—';
+  const formattedCreatedDate = formatDateIST(qc.CreatedAt);
 
   return (
     <div className="w-full">

@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
+import { formatDateTimeIST } from '@/lib/datetime';
 import {
   Table,
   TableBody,
@@ -245,14 +246,7 @@ export default function AuditLogViewerPage() {
                 logs.map((log) => (
                   <TableRow key={log.AuditID} className="text-xs">
                     <TableCell className="text-muted-foreground whitespace-nowrap">
-                      {new Date(log.ChangedAt).toLocaleString('en-IN', {
-                        day: '2-digit',
-                        month: 'short',
-                        year: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                        second: '2-digit',
-                      })}
+                      {formatDateTimeIST(log.ChangedAt, { second: '2-digit' })}
                     </TableCell>
                     <TableCell>{getActionBadge(log.ActionType)}</TableCell>
                     <TableCell className="font-medium text-foreground">
@@ -295,13 +289,7 @@ export default function AuditLogViewerPage() {
               <div key={log.AuditID} className="rounded-lg border bg-card p-3.5 space-y-2 text-xs">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-muted-foreground">
-                    {new Date(log.ChangedAt).toLocaleString('en-IN', {
-                      day: '2-digit',
-                      month: 'short',
-                      year: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
+                    {formatDateTimeIST(log.ChangedAt)}
                   </span>
                   {getActionBadge(log.ActionType)}
                 </div>

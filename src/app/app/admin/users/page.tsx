@@ -21,6 +21,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useDebounce } from '@/hooks/use-debounce';
+import { formatDateIST } from '@/lib/datetime';
 import { useSession } from '@/hooks/use-session';
 import { Loader2, Search, Users, UserCheck, UserX, Shield, ShieldAlert } from 'lucide-react';
 import type { SafeUser, UserRole, UserStatus } from '@/types/db';
@@ -189,11 +190,7 @@ export default function UserDirectoryPage() {
                       )}
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
-                      {new Date(u.CreatedAt).toLocaleDateString('en-IN', {
-                        day: '2-digit',
-                        month: 'short',
-                        year: 'numeric',
-                      })}
+                      {formatDateIST(u.CreatedAt)}
                     </TableCell>
                     <TableCell className="text-right">
                       {isSelf ? (
@@ -293,11 +290,7 @@ export default function UserDirectoryPage() {
                   <div>
                     <div className="text-xs text-muted-foreground mb-1">Joined</div>
                     <div className="text-xs">
-                      {new Date(u.CreatedAt).toLocaleDateString('en-IN', {
-                        day: '2-digit',
-                        month: 'short',
-                        year: 'numeric',
-                      })}
+                      {formatDateIST(u.CreatedAt)}
                     </div>
                   </div>
                 </div>
