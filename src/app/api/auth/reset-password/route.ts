@@ -72,6 +72,7 @@ export async function POST(req: NextRequest) {
       // Log password change in audit log
       await writeAuditLog(conn, [
         {
+          companyId: null,
           tableName: 'Users',
           recordId: String(userId),
           actionType: 'UPDATE',

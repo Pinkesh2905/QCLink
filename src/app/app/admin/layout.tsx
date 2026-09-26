@@ -1,9 +1,9 @@
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import type { Metadata } from 'next';
-import { validateSession } from '@/lib/session';
+import { getCurrentUser } from '@/lib/session';
 import { Button } from '@/components/ui/button';
-import { UserCheck, Users, Database, FileClock, Shield } from 'lucide-react';
+import { Building2, Users, Database, FileClock, Shield } from 'lucide-react';
 
 export const metadata: Metadata = {
   title: 'Admin Panel',
@@ -14,7 +14,7 @@ export default async function AdminLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const session = await validateSession();
+  const session = await getCurrentUser();
 
   if (!session) {
     redirect('/login');
@@ -30,15 +30,15 @@ export default async function AdminLayout({
         <div>
           <h2 className="text-xl sm:text-2xl font-bold tracking-tight">Admin Panel</h2>
           <p className="text-xs sm:text-sm text-muted-foreground">
-            Manage user accounts, lookup master data, and configure field permissions
+            Manage companies, subscriptions, user accounts, master data, and field permissions
           </p>
         </div>
 
         <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2 w-full sm:w-auto">
           <Button variant="outline" size="sm" className="text-xs justify-center" asChild>
-            <Link href="/app/admin/approvals">
-              <UserCheck className="mr-1.5 h-3.5 w-3.5" />
-              Approvals
+            <Link href="/app/admin/companies">
+              <Building2 className="mr-1.5 h-3.5 w-3.5" />
+              Companies
             </Link>
           </Button>
           <Button variant="outline" size="sm" className="text-xs justify-center" asChild>

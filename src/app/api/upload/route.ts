@@ -4,14 +4,15 @@
 // ============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
-import { withAuth } from '@/lib/middleware';
+import { withWriteAuth } from '@/lib/middleware';
 import { saveUploadedFile, type UploadType } from '@/lib/upload';
+import { requireCompanyId } from '@/lib/tenant';
 import { errorResponse, AppError } from '@/lib/errors';
 
 const VALID_TYPES: UploadType[] = ['qc-images', 'invoices'];
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
-export const POST = withAuth(async (req: NextRequest) => {
+export const POST = withWriteAuth(async (req: NextRequest, ctx) => {
   try {
     const formData = await req.formData();
     const file = formData.get('file') as File | null;
@@ -32,7 +33,7 @@ export const POST = withAuth(async (req: NextRequest) => {
       throw new AppError('File size exceeds 10MB limit', 400);
     }
 
-    const path = await saveUploadedFile(file, type as UploadType);
+    const path = await saveUploadedFile(file, type as UploadType, requireCompanyId(ctx.user));
 
     return NextResponse.json({ path });
   } catch (error) {

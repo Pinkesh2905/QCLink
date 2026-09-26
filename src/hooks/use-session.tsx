@@ -7,13 +7,7 @@ import {
   useCallback,
   useEffect,
 } from 'react';
-
-interface SessionUser {
-  UserID: number;
-  Name: string;
-  Email: string;
-  Role: 'Admin' | 'User';
-}
+import type { ClientSessionUser as SessionUser } from '@/types/auth';
 
 interface SessionContextValue {
   user: SessionUser | null;

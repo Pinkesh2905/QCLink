@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { query } from '@/lib/db';
-import { validateSession } from '@/lib/session';
+import { getCurrentUser } from '@/lib/session';
 import { PrintActions } from '@/components/print/print-actions';
 import type {
   InspectionReportWithLookups,
@@ -67,7 +67,9 @@ function renderHeaderStamp(statusName?: string | null) {
 
 export default async function IRPrintPage({ params }: IRPrintPageProps) {
   const { iirUID } = await params;
-  await validateSession();
+  const user = await getCurrentUser();
+  if (!user) redirect('/login');
+  if (!user.companyId) notFound();
 
   const headers = await query<InspectionReportWithLookups>(
     `SELECT r.*,
@@ -76,8 +78,8 @@ export default async function IRPrintPage({ params }: IRPrintPageProps) {
      FROM InspectionReports r
      LEFT JOIN ResultStatus rs ON r.InspectionStatusID = rs.ResultStatusID
      LEFT JOIN Users usr ON r.OwnerUserID = usr.UserID
-     WHERE r.IIRUID = ?`,
-    [iirUID]
+     WHERE r.CompanyID = ? AND r.IIRUID = ?`,
+    [user.companyId, iirUID]
   );
 
   if (headers.length === 0) {
@@ -101,9 +103,9 @@ export default async function IRPrintPage({ params }: IRPrintPageProps) {
      LEFT JOIN Responsibility resp ON res.ResponsibilityID = resp.ResponsibilityID
      LEFT JOIN ReactionPlan rp ON res.ReactionPlanID = rp.ReactionPlanID
      LEFT JOIN ResultStatus rs ON res.ResultStatusID = rs.ResultStatusID
-     WHERE res.IIRUID = ?
+     WHERE res.CompanyID = ? AND res.IIRUID = ?
      ORDER BY res.SrNo ASC`,
-    [iirUID]
+    [user.companyId, iirUID]
   );
 
   const rowCount = results.length;
@@ -141,7 +143,9 @@ export default async function IRPrintPage({ params }: IRPrintPageProps) {
           {/* Header Block */}
           <div className="border-b-2 border-slate-900 pb-2 flex items-end justify-between gap-2">
             <div>
-              <div className="text-lg sm:text-xl font-bold tracking-tight text-slate-950">QCLink</div>
+              <div className="text-lg sm:text-xl font-bold tracking-tight text-slate-950">
+                {user.companyName || 'QCLink'}
+              </div>
               <div className="text-[9px] sm:text-[10px] tracking-wider text-slate-600 uppercase font-medium">
                 Quality Assurance & Control Department
               </div>

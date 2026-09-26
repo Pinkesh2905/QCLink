@@ -14,7 +14,6 @@ import {
   Package,
   ClipboardCheck,
   FileText,
-  Users,
   AlertTriangle,
   Activity,
   ArrowRight,
@@ -172,25 +171,13 @@ export default function DashboardPage() {
       icon: <FileText className="h-5 w-5" />,
       href: '/app/inspection-report',
     },
-    ...(isAdmin
-      ? [
-          {
-            title: 'Pending Approvals',
-            value: data?.pendingApprovals ?? 0,
-            icon: <Users className="h-5 w-5" />,
-            href: '/app/admin/approvals',
-            attention: (data?.pendingApprovals ?? 0) > 0,
-          },
-        ]
-      : [
-          {
-            title: 'Low Stock Alerts',
-            value: data?.lowStockItems?.length ?? 0,
-            icon: <AlertTriangle className="h-5 w-5" />,
-            href: '/app/store-master',
-            attention: (data?.lowStockItems?.length ?? 0) > 0,
-          },
-        ]),
+    {
+      title: 'Low Stock Alerts',
+      value: data?.lowStockItems?.length ?? 0,
+      icon: <AlertTriangle className="h-5 w-5" />,
+      href: '/app/store-master',
+      attention: (data?.lowStockItems?.length ?? 0) > 0,
+    },
   ];
 
   const stockHealth = data?.stockAnalytics?.health;
@@ -212,20 +199,22 @@ export default function DashboardPage() {
             Real-time quality control outcomes, inventory health, and store analytics.
           </p>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <Button asChild size="sm" variant="outline">
-            <Link href="/app/inspection-report/new">
-              <FileText className="mr-1.5 h-4 w-4" />
-              New Inspection
-            </Link>
-          </Button>
-          <Button asChild size="sm">
-            <Link href="/app/store-master/new">
-              <Package className="mr-1.5 h-4 w-4" />
-              New Item
-            </Link>
-          </Button>
-        </div>
+        {!user?.ReadOnly && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button asChild size="sm" variant="outline">
+              <Link href="/app/inspection-report/new">
+                <FileText className="mr-1.5 h-4 w-4" />
+                New Inspection
+              </Link>
+            </Button>
+            <Button asChild size="sm">
+              <Link href="/app/store-master/new">
+                <Package className="mr-1.5 h-4 w-4" />
+                New Item
+              </Link>
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Error Alert if dashboard fetch fails */}
@@ -401,9 +390,11 @@ export default function DashboardPage() {
                   <p className="text-xs text-muted-foreground/80 mt-1 max-w-sm">
                     Create new inspection reports to view outcome trends and quality distributions.
                   </p>
-                  <Button asChild size="sm" variant="outline" className="mt-3">
-                    <Link href="/app/inspection-report/new">Create First Inspection</Link>
-                  </Button>
+                  {!user?.ReadOnly && (
+                    <Button asChild size="sm" variant="outline" className="mt-3">
+                      <Link href="/app/inspection-report/new">Create First Inspection</Link>
+                    </Button>
+                  )}
                 </div>
               ) : (
                 <div className="h-64 sm:h-72 w-full min-w-0">

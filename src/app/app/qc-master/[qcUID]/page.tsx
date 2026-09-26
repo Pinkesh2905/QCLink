@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { query } from '@/lib/db';
+import { getCurrentUser } from '@/lib/session';
 import { QCForm } from '@/components/qc-master/qc-form';
 import type {
   QCMasterWithLookups,
@@ -22,14 +23,17 @@ export async function generateMetadata({ params }: QCDetailPageProps): Promise<M
 
 export default async function QCDetailPage({ params }: QCDetailPageProps) {
   const { qcUID } = await params;
+  const user = await getCurrentUser();
+  if (!user?.companyId) notFound();
 
   const headers = await query<QCMasterWithLookups>(
     `SELECT q.*, usr.Name AS OwnerName,
-            (SELECT COUNT(*) FROM QCSpecifications s WHERE s.QCUID = q.QCUID) AS SpecCount
+            (SELECT COUNT(*) FROM QCSpecifications s
+             WHERE s.CompanyID = q.CompanyID AND s.QCUID = q.QCUID) AS SpecCount
      FROM QCMaster q
      LEFT JOIN Users usr ON q.OwnerUserID = usr.UserID
-     WHERE q.QCUID = ?`,
-    [qcUID]
+     WHERE q.CompanyID = ? AND q.QCUID = ?`,
+    [user.companyId, qcUID]
   );
 
   if (headers.length === 0) {
@@ -49,9 +53,9 @@ export default async function QCDetailPage({ params }: QCDetailPageProps) {
      LEFT JOIN InspectionFrequency f ON s.FrequencyID = f.FrequencyID
      LEFT JOIN Responsibility r ON s.ResponsibilityID = r.ResponsibilityID
      LEFT JOIN ReactionPlan rp ON s.ReactionPlanID = rp.ReactionPlanID
-     WHERE s.QCUID = ?
+     WHERE s.CompanyID = ? AND s.QCUID = ?
      ORDER BY s.SrNo ASC`,
-    [qcUID]
+    [user.companyId, qcUID]
   );
 
   const initialData: QCMasterDetailResponse = {

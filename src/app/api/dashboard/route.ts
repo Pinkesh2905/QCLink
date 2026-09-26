@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/middleware';
 import { query } from '@/lib/db';
+import { requireCompanyId } from '@/lib/tenant';
 import { errorResponse } from '@/lib/errors';
 import type {
   DashboardData,
@@ -17,6 +18,7 @@ import type {
 
 export const GET = withAuth(async (req: NextRequest, ctx) => {
   try {
+    const companyId = requireCompanyId(ctx.user);
     const url = req.nextUrl;
     const startDate = url.searchParams.get('startDate') || '';
     const endDate = url.searchParams.get('endDate') || '';
@@ -25,29 +27,25 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
 
     // 1. Summary Counts
     const [items] = await query<{ count: number }>(
-      'SELECT COUNT(*) as count FROM Items'
+      'SELECT COUNT(*) as count FROM Items WHERE CompanyID = ?',
+      [companyId]
     );
     const [qc] = await query<{ count: number }>(
-      'SELECT COUNT(*) as count FROM QCMaster'
+      'SELECT COUNT(*) as count FROM QCMaster WHERE CompanyID = ?',
+      [companyId]
     );
     const [inspections] = await query<{ count: number }>(
       `SELECT COUNT(*) as count FROM InspectionReports
-       WHERE MONTH(InspectionDate) = MONTH(NOW()) AND YEAR(InspectionDate) = YEAR(NOW())`
+       WHERE CompanyID = ?
+         AND MONTH(InspectionDate) = MONTH(NOW()) AND YEAR(InspectionDate) = YEAR(NOW())`,
+      [companyId]
     );
-
-    let pendingApprovals = 0;
-    if (ctx.user.role === 'Admin') {
-      const [pending] = await query<{ count: number }>(
-        "SELECT COUNT(*) as count FROM Users WHERE Status = 'Pending'"
-      );
-      pendingApprovals = pending?.count ?? 0;
-    }
 
     // 2. Inspection Outcomes Trend (Grouped by InspectionDate)
     // Defaults to the trailing 12 weeks; a custom startDate/endDate (and
     // optional itemUID) narrows both the trend and its total below.
-    const trendConditions: string[] = [];
-    const trendParams: unknown[] = [];
+    const trendConditions: string[] = ['r.CompanyID = ?'];
+    const trendParams: unknown[] = [companyId];
 
     if (hasDateFilter) {
       trendConditions.push('r.InspectionDate >= ? AND r.InspectionDate <= ?');
@@ -117,11 +115,12 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     // live stock snapshot, not a historical record, so only the item filter
     // applies here — a date range has no meaning against current stock.
     const lowStockConditions = [
+      'i.CompanyID = ?',
       'i.CurrentStock IS NOT NULL',
       'i.MinLevel IS NOT NULL',
       'i.CurrentStock < i.MinLevel',
     ];
-    const lowStockParams: unknown[] = [];
+    const lowStockParams: unknown[] = [companyId];
     if (itemUID) {
       lowStockConditions.push('i.ItemUID = ?');
       lowStockParams.push(itemUID);
@@ -158,7 +157,9 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
          END AS status,
          COUNT(*) AS count
        FROM Items i
-       GROUP BY status`
+       WHERE i.CompanyID = ?
+       GROUP BY status`,
+      [companyId]
     );
 
     let inStockCount = 0;
@@ -185,12 +186,15 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
          COALESCE(SUM(i.CurrentStock), 0) AS totalStock
        FROM Items i
        LEFT JOIN Categories c ON i.CategoryID = c.CategoryID
+       WHERE i.CompanyID = ?
        GROUP BY c.CategoryID, c.CategoryName
        ORDER BY itemCount DESC
-       LIMIT 8`
+       LIMIT 8`,
+      [companyId]
     );
 
-    // 5. Recent Activity Feed (Admin Only - skipped entirely for non-admin users)
+    // 5. Recent Activity Feed (Admin only, and only this company's records —
+    //    record IDs like "Item01" repeat across companies)
     let recentActivity: RecentActivityEntry[] = [];
     if (ctx.user.role === 'Admin') {
       recentActivity = await query<RecentActivityEntry>(
@@ -206,8 +210,10 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
            COALESCE(u.Name, 'System') AS ChangedByName
          FROM AuditLog a
          LEFT JOIN Users u ON a.ChangedByUserID = u.UserID
+         WHERE a.CompanyID = ?
          ORDER BY a.ChangedAt DESC
-         LIMIT 10`
+         LIMIT 10`,
+        [companyId]
       );
     }
 
@@ -215,7 +221,6 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
       totalItems: items?.count ?? 0,
       totalQCTemplates: qc?.count ?? 0,
       inspectionsThisMonth: inspections?.count ?? 0,
-      pendingApprovals,
       inspectionTrend,
       inspectionTrendTotal,
       lowStockItems: lowStockItems || [],

@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { query } from '@/lib/db';
+import { getCurrentUser } from '@/lib/session';
 import { IRForm } from '@/components/inspection-report/ir-form';
 import type {
   InspectionReportWithLookups,
@@ -22,6 +23,8 @@ export async function generateMetadata({ params }: IRDetailPageProps): Promise<M
 
 export default async function IRDetailPage({ params }: IRDetailPageProps) {
   const { iirUID } = await params;
+  const user = await getCurrentUser();
+  if (!user?.companyId) notFound();
 
   const headers = await query<InspectionReportWithLookups>(
     `SELECT r.*,
@@ -30,8 +33,8 @@ export default async function IRDetailPage({ params }: IRDetailPageProps) {
      FROM InspectionReports r
      LEFT JOIN ResultStatus rs ON r.InspectionStatusID = rs.ResultStatusID
      LEFT JOIN Users usr ON r.OwnerUserID = usr.UserID
-     WHERE r.IIRUID = ?`,
-    [iirUID]
+     WHERE r.CompanyID = ? AND r.IIRUID = ?`,
+    [user.companyId, iirUID]
   );
 
   if (headers.length === 0) {
@@ -53,9 +56,9 @@ export default async function IRDetailPage({ params }: IRDetailPageProps) {
      LEFT JOIN Responsibility resp ON res.ResponsibilityID = resp.ResponsibilityID
      LEFT JOIN ReactionPlan rp ON res.ReactionPlanID = rp.ReactionPlanID
      LEFT JOIN ResultStatus rs ON res.ResultStatusID = rs.ResultStatusID
-     WHERE res.IIRUID = ?
+     WHERE res.CompanyID = ? AND res.IIRUID = ?
      ORDER BY res.SrNo ASC`,
-    [iirUID]
+    [user.companyId, iirUID]
   );
 
   const initialData: InspectionReportDetailResponse = {

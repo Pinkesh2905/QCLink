@@ -1,5 +1,5 @@
 // ============================================================================
-// PUT /api/admin/users/[userID] — change user status or role
+// PUT /api/admin/users/[userID] — change user status, role, or company
 // ============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -47,6 +47,19 @@ export const PUT = withAdmin(async (req: NextRequest, ctx) => {
       if (data.Role && data.Role !== 'Admin') {
         throw new AppError('You cannot remove admin privileges from yourself', 400);
       }
+      if (data.CompanyID === null) {
+        throw new AppError('Your own account must stay linked to a company', 400);
+      }
+    }
+
+    if (data.CompanyID) {
+      const [company] = await query<{ CompanyID: number }>(
+        'SELECT CompanyID FROM Companies WHERE CompanyID = ?',
+        [data.CompanyID]
+      );
+      if (!company) {
+        throw new AppError('Company not found', 404, 'CompanyID');
+      }
     }
 
     await withTransaction(async (conn) => {
@@ -74,6 +87,14 @@ export const PUT = withAdmin(async (req: NextRequest, ctx) => {
         newRow.Role = data.Role;
       }
 
+      // Company changes take effect on the user's next request: every session
+      // check re-reads CompanyID from the database.
+      if (data.CompanyID !== undefined) {
+        updateFields.push('CompanyID = ?');
+        updateValues.push(data.CompanyID);
+        newRow.CompanyID = data.CompanyID;
+      }
+
       if (updateFields.length === 0) {
         return;
       }
@@ -89,10 +110,10 @@ export const PUT = withAdmin(async (req: NextRequest, ctx) => {
       const diffs = diffFields(
         targetUser as unknown as Record<string, unknown>,
         newRow,
-        ['Status', 'Role']
+        ['Status', 'Role', 'CompanyID']
       );
 
-      await writeAuditDiffs(conn, 'Users', String(targetUserID), diffs, ctx.user.userId);
+      await writeAuditDiffs(conn, null, 'Users', String(targetUserID), diffs, ctx.user.userId);
     });
 
     // Status notification emails

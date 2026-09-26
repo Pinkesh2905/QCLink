@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { query } from '@/lib/db';
+import { getCurrentUser } from '@/lib/session';
 import { ItemForm } from '@/components/store-master/item-form';
 import type { ItemWithLookups } from '@/types/db';
 
@@ -18,6 +19,8 @@ export async function generateMetadata({ params }: ItemDetailPageProps): Promise
 
 export default async function ItemDetailPage({ params }: ItemDetailPageProps) {
   const { itemUID } = await params;
+  const user = await getCurrentUser();
+  if (!user?.companyId) notFound();
 
   const rows = await query<ItemWithLookups>(
     `SELECT i.*, c.CategoryName, u.UOMName, sc.SubCategoryName, usr.Name AS OwnerName
@@ -26,8 +29,8 @@ export default async function ItemDetailPage({ params }: ItemDetailPageProps) {
      LEFT JOIN UnitOfStock u ON i.UOMID = u.UOMID
      LEFT JOIN SubCategories sc ON i.SubCategoryID = sc.SubCategoryID
      LEFT JOIN Users usr ON i.OwnerUserID = usr.UserID
-     WHERE i.ItemUID = ?`,
-    [itemUID]
+     WHERE i.CompanyID = ? AND i.ItemUID = ?`,
+    [user.companyId, itemUID]
   );
 
   if (rows.length === 0) {

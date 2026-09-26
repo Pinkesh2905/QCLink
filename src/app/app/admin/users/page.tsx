@@ -23,23 +23,36 @@ import {
 import { useDebounce } from '@/hooks/use-debounce';
 import { formatDateIST } from '@/lib/datetime';
 import { useSession } from '@/hooks/use-session';
-import { Loader2, Search, Users, UserCheck, UserX, Shield, ShieldAlert } from 'lucide-react';
-import type { SafeUser, UserRole, UserStatus } from '@/types/db';
+import { AddUserDialog } from '@/components/admin/add-user-dialog';
+import { Loader2, Search, Users, UserCheck, UserX, UserPlus } from 'lucide-react';
+import type { UserWithCompany, UserRole, UserStatus } from '@/types/db';
+
+interface CompanyOption {
+  CompanyID: number;
+  CompanyName: string;
+}
+
+const ALL_COMPANIES = 'all';
 
 export default function UserDirectoryPage() {
   const { user: currentSessionUser } = useSession();
-  const [users, setUsers] = useState<SafeUser[]>([]);
+  const [users, setUsers] = useState<UserWithCompany[]>([]);
+  const [companies, setCompanies] = useState<CompanyOption[]>([]);
+  const [companyFilter, setCompanyFilter] = useState(ALL_COMPANIES);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [actionLoading, setActionLoading] = useState<number | null>(null);
+  const [addUserOpen, setAddUserOpen] = useState(false);
 
   const debouncedSearch = useDebounce(search, 300);
 
   const fetchUsers = useCallback(async () => {
     setLoading(true);
     try {
-      const url = `/api/admin/users${debouncedSearch ? `?search=${encodeURIComponent(debouncedSearch)}` : ''}`;
-      const res = await fetch(url);
+      const params = new URLSearchParams();
+      if (debouncedSearch) params.set('search', debouncedSearch);
+      if (companyFilter !== ALL_COMPANIES) params.set('companyId', companyFilter);
+      const res = await fetch(`/api/admin/users?${params.toString()}`);
       if (res.ok) {
         setUsers(await res.json());
       }
@@ -48,15 +61,22 @@ export default function UserDirectoryPage() {
     } finally {
       setLoading(false);
     }
-  }, [debouncedSearch]);
+  }, [debouncedSearch, companyFilter]);
 
   useEffect(() => {
     fetchUsers();
   }, [fetchUsers]);
 
+  useEffect(() => {
+    fetch('/api/admin/companies')
+      .then((res) => (res.ok ? res.json() : []))
+      .then((rows: CompanyOption[]) => setCompanies(rows))
+      .catch(() => toast.error('Failed to load companies'));
+  }, []);
+
   const handleUpdate = async (
     userId: number,
-    payload: { Status?: UserStatus; Role?: UserRole }
+    payload: { Status?: UserStatus; Role?: UserRole; CompanyID?: number }
   ) => {
     setActionLoading(userId);
     try {
@@ -105,20 +125,37 @@ export default function UserDirectoryPage() {
             User Directory & Access Control
           </h3>
           <p className="text-sm text-muted-foreground">
-            Manage account roles, permissions, and active/deactivated statuses
+            Create accounts, assign companies, and manage roles and access
           </p>
         </div>
 
-        <div className="w-full sm:w-72">
-          <div className="relative">
+        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+          <Select value={companyFilter} onValueChange={setCompanyFilter}>
+            <SelectTrigger className="h-9 w-full sm:w-52 text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_COMPANIES}>All companies</SelectItem>
+              {companies.map((c) => (
+                <SelectItem key={c.CompanyID} value={String(c.CompanyID)}>
+                  {c.CompanyName}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <div className="relative w-full sm:w-64">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
-              placeholder="Search users by name or email..."
+              placeholder="Search by name or email..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="pl-9 h-9"
             />
           </div>
+          <Button size="sm" className="h-9" onClick={() => setAddUserOpen(true)}>
+            <UserPlus className="mr-1.5 h-4 w-4" />
+            Add user
+          </Button>
         </div>
       </div>
 
@@ -128,6 +165,7 @@ export default function UserDirectoryPage() {
             <TableRow>
               <TableHead>User</TableHead>
               <TableHead>Email</TableHead>
+              <TableHead>Company</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Role</TableHead>
               <TableHead>Joined</TableHead>
@@ -137,13 +175,13 @@ export default function UserDirectoryPage() {
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={6} className="h-32 text-center">
+                <TableCell colSpan={7} className="h-32 text-center">
                   <Loader2 className="mx-auto h-6 w-6 animate-spin text-muted-foreground" />
                 </TableCell>
               </TableRow>
             ) : users.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="h-32 text-center text-muted-foreground">
+                <TableCell colSpan={7} className="h-32 text-center text-muted-foreground">
                   No users found
                 </TableCell>
               </TableRow>
@@ -165,6 +203,14 @@ export default function UserDirectoryPage() {
                       </div>
                     </TableCell>
                     <TableCell className="text-muted-foreground">{u.Email}</TableCell>
+                    <TableCell>
+                      <CompanySelect
+                        user={u}
+                        companies={companies}
+                        disabled={isRowLoading}
+                        onChange={(companyId) => handleUpdate(u.UserID, { CompanyID: companyId })}
+                      />
+                    </TableCell>
                     <TableCell>{getStatusBadge(u.Status)}</TableCell>
                     <TableCell>
                       {isSelf ? (
@@ -262,6 +308,16 @@ export default function UserDirectoryPage() {
 
                 <div className="text-xs text-muted-foreground truncate">{u.Email}</div>
 
+                <div>
+                  <div className="text-xs text-muted-foreground mb-1">Company</div>
+                  <CompanySelect
+                    user={u}
+                    companies={companies}
+                    disabled={isRowLoading}
+                    onChange={(companyId) => handleUpdate(u.UserID, { CompanyID: companyId })}
+                  />
+                </div>
+
                 <div className="pt-1.5 border-t grid grid-cols-2 gap-x-3 gap-y-2 items-end">
                   <div>
                     <div className="text-xs text-muted-foreground mb-1">Role</div>
@@ -327,6 +383,44 @@ export default function UserDirectoryPage() {
           })
         )}
       </div>
+
+      <AddUserDialog
+        open={addUserOpen}
+        onOpenChange={setAddUserOpen}
+        onCreated={fetchUsers}
+        companies={companies}
+      />
     </div>
+  );
+}
+
+function CompanySelect({
+  user,
+  companies,
+  disabled,
+  onChange,
+}: {
+  user: UserWithCompany;
+  companies: CompanyOption[];
+  disabled: boolean;
+  onChange: (companyId: number) => void;
+}) {
+  return (
+    <Select
+      value={user.CompanyID ? String(user.CompanyID) : undefined}
+      onValueChange={(val) => onChange(Number(val))}
+      disabled={disabled}
+    >
+      <SelectTrigger className="h-8 w-full sm:w-44 text-xs">
+        <SelectValue placeholder="No company" />
+      </SelectTrigger>
+      <SelectContent>
+        {companies.map((c) => (
+          <SelectItem key={c.CompanyID} value={String(c.CompanyID)} className="text-xs">
+            {c.CompanyName}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }

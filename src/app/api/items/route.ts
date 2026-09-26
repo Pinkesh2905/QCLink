@@ -1,13 +1,15 @@
 // ============================================================================
-// GET /api/items — paginated list with search/sort
+// GET /api/items — paginated list with search/sort (caller's company only)
 // POST /api/items — create new item with UID generation
 // ============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
-import { withAuth } from '@/lib/middleware';
+import { withAuth, withWriteAuth } from '@/lib/middleware';
 import { query, withTransaction } from '@/lib/db';
 import { generateUID } from '@/lib/uid';
 import { writeCreateAudit } from '@/lib/audit';
+import { assertLookupIdsVisible } from '@/lib/lookups';
+import { requireCompanyId } from '@/lib/tenant';
 import { syncItemToSheet, appendAuditLogToSheet } from '@/lib/sheets-sync';
 import { createItemSchema } from '@/validators/items';
 import { errorResponse, validationErrorResponse, AppError } from '@/lib/errors';
@@ -16,8 +18,9 @@ import type { ItemWithLookups } from '@/types/db';
 // ---------------------------------------------------------------------------
 // GET — List Items
 // ---------------------------------------------------------------------------
-export const GET = withAuth(async (req: NextRequest) => {
+export const GET = withAuth(async (req: NextRequest, ctx) => {
   try {
+    const companyId = requireCompanyId(ctx.user);
     const url = req.nextUrl;
     const page = Math.max(1, parseInt(url.searchParams.get('page') || '1', 10) || 1);
     const pageSize = Math.min(parseInt(url.searchParams.get('pageSize') || '15', 10), 100);
@@ -37,8 +40,8 @@ export const GET = withAuth(async (req: NextRequest) => {
     };
     const orderCol = sortableColumns[sortBy] || 'i.CreatedAt';
 
-    const conditions: string[] = [];
-    const params: unknown[] = [];
+    const conditions: string[] = ['i.CompanyID = ?'];
+    const params: unknown[] = [companyId];
 
     if (search) {
       conditions.push('(i.ItemName LIKE ? OR i.ItemUID LIKE ? OR c.CategoryName LIKE ?)');
@@ -46,7 +49,7 @@ export const GET = withAuth(async (req: NextRequest) => {
       params.push(pattern, pattern, pattern);
     }
 
-    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const whereClause = `WHERE ${conditions.join(' AND ')}`;
     const offset = (page - 1) * pageSize;
 
     const rows = await query<ItemWithLookups>(
@@ -85,8 +88,9 @@ export const GET = withAuth(async (req: NextRequest) => {
 // ---------------------------------------------------------------------------
 // POST — Create Item
 // ---------------------------------------------------------------------------
-export const POST = withAuth(async (req: NextRequest, ctx) => {
+export const POST = withWriteAuth(async (req: NextRequest, ctx) => {
   try {
+    const companyId = requireCompanyId(ctx.user);
     const body = await req.json();
     const parsed = createItemSchema.safeParse(body);
 
@@ -96,12 +100,18 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
     const data = parsed.data;
 
-    // Uniqueness check: (ItemName, CategoryID) case-insensitive
+    await assertLookupIdsVisible(companyId, [
+      { slug: 'categories', ids: [data.CategoryID] },
+      { slug: 'unit-of-stock', ids: [data.UOMID] },
+      { slug: 'sub-categories', ids: [data.SubCategoryID] },
+    ]);
+
+    // Uniqueness check: (ItemName, CategoryID) case-insensitive, per company
     const existing = await query<{ ItemUID: string }>(
       `SELECT ItemUID FROM Items
-       WHERE LOWER(ItemName) = LOWER(?) AND CategoryID = ?
+       WHERE CompanyID = ? AND LOWER(ItemName) = LOWER(?) AND CategoryID = ?
        LIMIT 1`,
-      [data.ItemName, data.CategoryID]
+      [companyId, data.ItemName, data.CategoryID]
     );
 
     if (existing.length > 0) {
@@ -109,26 +119,26 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     }
 
     const itemUID = await withTransaction(async (conn) => {
-      // Re-check immediately before inserting: the check above ran outside this
-      // transaction, so a concurrent request could have inserted the same
-      // (ItemName, CategoryID) in between. This narrows — but, absent a DB-level
-      // UNIQUE constraint, can't fully close — that race; see errorResponse()'s
-      // ER_DUP_ENTRY handling for the authoritative backstop.
+      // Re-check immediately before inserting: the check above ran outside
+      // this transaction. The (CompanyID, ItemName, CategoryID) UNIQUE key is
+      // the authoritative backstop (see errorResponse's ER_DUP_ENTRY handling).
       const [dupeRecheck] = await conn.execute(
-        `SELECT ItemUID FROM Items WHERE LOWER(ItemName) = LOWER(?) AND CategoryID = ? LIMIT 1`,
-        [data.ItemName, data.CategoryID]
+        `SELECT ItemUID FROM Items
+         WHERE CompanyID = ? AND LOWER(ItemName) = LOWER(?) AND CategoryID = ? LIMIT 1`,
+        [companyId, data.ItemName, data.CategoryID]
       ) as [Array<{ ItemUID: string }>, unknown];
 
       if (dupeRecheck.length > 0) {
         throw new AppError('Item already available. Kindly check!', 409, 'ItemName');
       }
 
-      const uid = await generateUID(conn, 'Item');
+      const uid = await generateUID(conn, companyId, 'Item');
 
       await conn.execute(
-        `INSERT INTO Items (ItemUID, ItemName, CategoryID, UOMID, SubCategoryID, Make, Size, CurrentStock, MPQ, MinLevel, OwnerUserID, CreatedAt, UpdatedAt)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+        `INSERT INTO Items (CompanyID, ItemUID, ItemName, CategoryID, UOMID, SubCategoryID, Make, Size, CurrentStock, MPQ, MinLevel, OwnerUserID, CreatedAt, UpdatedAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
         [
+          companyId,
           uid,
           data.ItemName,
           data.CategoryID,
@@ -143,13 +153,13 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
         ]
       );
 
-      await writeCreateAudit(conn, 'Items', uid, ctx.user.userId);
+      await writeCreateAudit(conn, companyId, 'Items', uid, ctx.user.userId);
 
       return uid;
     });
 
-    await syncItemToSheet(itemUID);
-    await appendAuditLogToSheet([
+    await syncItemToSheet(companyId, itemUID);
+    await appendAuditLogToSheet(companyId, [
       {
         tableName: 'Items',
         recordId: itemUID,

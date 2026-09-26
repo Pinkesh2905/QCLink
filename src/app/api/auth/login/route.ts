@@ -10,6 +10,8 @@ import { setSessionCookie } from '@/lib/session';
 import { checkRateLimit, resetRateLimit } from '@/lib/rate-limit';
 import { loginSchema } from '@/validators/auth';
 import { errorResponse, validationErrorResponse, AppError } from '@/lib/errors';
+import { APP_CODE } from '@/lib/plans';
+import { evaluateTenantAccess, USER_WITH_TENANT_SELECT, type TenantRow } from '@/lib/tenant';
 import type { User } from '@/types/db';
 import type { ResultSetHeader } from 'mysql2';
 import { getPool } from '@/lib/db';
@@ -36,10 +38,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 1. Find user by email
-    const users = await query<User>(
-      'SELECT * FROM Users WHERE Email = ? LIMIT 1',
-      [email]
+    // 1. Find user by email, with their company and QCLink plan
+    const users = await query<User & TenantRow>(
+      `${USER_WITH_TENANT_SELECT} WHERE u.Email = ? LIMIT 1`,
+      [APP_CODE, email]
     );
 
     const user = users[0] ?? null;
@@ -59,7 +61,7 @@ export async function POST(req: NextRequest) {
     // 3. Check status — distinct messages per status
     if (user.Status === 'Pending') {
       throw new AppError(
-        'Your account is awaiting admin approval. Please check back later.',
+        'Your account has not been activated yet. Please contact Vezapp support.',
         403
       );
     }
@@ -74,6 +76,12 @@ export async function POST(req: NextRequest) {
         'Your account has been deactivated. Please contact an administrator.',
         403
       );
+    }
+
+    // 3b. Company + subscription gate (an expired plan still signs in, read-only)
+    const access = evaluateTenantAccess(user);
+    if (!access.allowed) {
+      throw new AppError(access.reason, 403);
     }
 
     // 4. Create session row

@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { DataTable, type Column } from '@/components/shared/data-table';
 import { ExportButton } from '@/components/shared/export-button';
+import { useSession } from '@/hooks/use-session';
 import { Plus } from 'lucide-react';
 import { formatDateIST } from '@/lib/datetime';
 import type { QCMasterWithLookups } from '@/types/db';
@@ -34,6 +35,7 @@ const columns: Column<QCMasterWithLookups>[] = [
 
 export default function QCMasterListPage() {
   const router = useRouter();
+  const { user } = useSession();
 
   return (
     <div className="space-y-6">
@@ -46,10 +48,12 @@ export default function QCMasterListPage() {
         <div className="flex flex-wrap items-center gap-2">
           <ExportButton exportUrl="/api/qc-master/export" label="Export" />
 
-          <Button className="w-full sm:w-auto shrink-0" onClick={() => router.push('/app/qc-master/new')}>
-            <Plus className="mr-2 h-4 w-4" />
-            New QC Template
-          </Button>
+          {!user?.ReadOnly && (
+            <Button className="w-full sm:w-auto shrink-0" onClick={() => router.push('/app/qc-master/new')}>
+              <Plus className="mr-2 h-4 w-4" />
+              New QC Template
+            </Button>
+          )}
         </div>
       </div>
 

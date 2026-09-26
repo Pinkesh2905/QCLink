@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { query } from '@/lib/db';
-import { validateSession } from '@/lib/session';
+import { getCurrentUser } from '@/lib/session';
 import { PrintActions } from '@/components/print/print-actions';
 import { formatDateIST } from '@/lib/datetime';
 import type {
@@ -22,14 +22,16 @@ export async function generateMetadata({ params }: QCPrintPageProps): Promise<Me
 
 export default async function QCPrintPage({ params }: QCPrintPageProps) {
   const { qcUID } = await params;
-  await validateSession();
+  const user = await getCurrentUser();
+  if (!user) redirect('/login');
+  if (!user.companyId) notFound();
 
   const headers = await query<QCMasterWithLookups>(
     `SELECT q.*, usr.Name AS OwnerName
      FROM QCMaster q
      LEFT JOIN Users usr ON q.OwnerUserID = usr.UserID
-     WHERE q.QCUID = ?`,
-    [qcUID]
+     WHERE q.CompanyID = ? AND q.QCUID = ?`,
+    [user.companyId, qcUID]
   );
 
   if (headers.length === 0) {
@@ -51,9 +53,9 @@ export default async function QCPrintPage({ params }: QCPrintPageProps) {
      LEFT JOIN InspectionFrequency f ON s.FrequencyID = f.FrequencyID
      LEFT JOIN Responsibility r ON s.ResponsibilityID = r.ResponsibilityID
      LEFT JOIN ReactionPlan rp ON s.ReactionPlanID = rp.ReactionPlanID
-     WHERE s.QCUID = ?
+     WHERE s.CompanyID = ? AND s.QCUID = ?
      ORDER BY s.SrNo ASC`,
-    [qcUID]
+    [user.companyId, qcUID]
   );
 
   const rowCount = specs.length;
@@ -85,7 +87,9 @@ export default async function QCPrintPage({ params }: QCPrintPageProps) {
           {/* Header Block */}
           <div className="border-b-2 border-slate-900 pb-2 flex items-end justify-between gap-2">
             <div>
-              <div className="text-lg sm:text-xl font-bold tracking-tight text-slate-950">QCLink</div>
+              <div className="text-lg sm:text-xl font-bold tracking-tight text-slate-950">
+                {user.companyName || 'QCLink'}
+              </div>
               <div className="text-[9px] sm:text-[10px] tracking-wider text-slate-600 uppercase font-medium">
                 Quality Assurance & Control Department
               </div>

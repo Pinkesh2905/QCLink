@@ -9,16 +9,18 @@ import { withAuth } from '@/lib/middleware';
 import { query } from '@/lib/db';
 import { generateCSV } from '@/lib/csv';
 import { formatISTForExport } from '@/lib/datetime';
+import { requireCompanyId } from '@/lib/tenant';
 import { errorResponse } from '@/lib/errors';
 
-export const GET = withAuth(async (req: NextRequest) => {
+export const GET = withAuth(async (req: NextRequest, ctx) => {
   try {
+    const companyId = requireCompanyId(ctx.user);
     const url = req.nextUrl;
     const search = url.searchParams.get('search') || '';
     const exportAll = url.searchParams.get('exportAll') === 'true';
 
-    const conditions: string[] = [];
-    const params: unknown[] = [];
+    const conditions: string[] = ['q.CompanyID = ?'];
+    const params: unknown[] = [companyId];
 
     if (search && !exportAll) {
       conditions.push('(q.ItemName LIKE ? OR q.QCUID LIKE ? OR q.ItemUID LIKE ?)');
@@ -26,7 +28,7 @@ export const GET = withAuth(async (req: NextRequest) => {
       params.push(pattern, pattern, pattern);
     }
 
-    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const whereClause = `WHERE ${conditions.join(' AND ')}`;
 
     const rows = await query<{
       QCUID: string;
@@ -66,7 +68,7 @@ export const GET = withAuth(async (req: NextRequest) => {
          q.CreatedAt,
          q.UpdatedAt
        FROM QCMaster q
-       LEFT JOIN QCSpecifications s ON q.QCUID = s.QCUID
+       LEFT JOIN QCSpecifications s ON s.CompanyID = q.CompanyID AND s.QCUID = q.QCUID
        LEFT JOIN SpecificationCriteria c ON s.CriteriaID = c.CriteriaID
        LEFT JOIN MethodOfInspection m ON s.MethodID = m.MethodID
        LEFT JOIN InspectionFrequency f ON s.FrequencyID = f.FrequencyID

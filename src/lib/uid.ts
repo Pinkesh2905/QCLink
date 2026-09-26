@@ -1,73 +1,71 @@
 // ============================================================================
 // QCLink — UID Generation & Batch Reservation
-// Generates string UIDs like "Item07", "QC01", "IIR12" using UIDCounters.
+// Generates string UIDs like "Item07", "QC01", "IIR12". Each company has its
+// own sequence (CompanyUIDCounters), so every company starts at Item01.
 // Must be called within a transaction — uses SELECT ... FOR UPDATE.
 // ============================================================================
 
 import type { PoolConnection } from 'mysql2/promise';
 import type { UIDCounter } from '@/types/db';
 
+export type UIDPrefix = 'Item' | 'QC' | 'IIR';
+
+const DEFAULT_PAD_WIDTH = 2;
+
 /**
- * Generate the next single UID for a given entity prefix within a transaction.
- * Uses SELECT ... FOR UPDATE to lock the counter row.
- *
- * @param conn - A mysql2 PoolConnection within an active transaction
- * @param prefix - Entity prefix: 'Item', 'QC', or 'IIR'
- * @returns The formatted UID string (e.g. "Item07")
+ * Generate the next single UID for a company's entity prefix.
  */
 export async function generateUID(
   conn: PoolConnection,
-  prefix: string
+  companyId: number,
+  prefix: UIDPrefix
 ): Promise<string> {
-  const uids = await reserveUIDs(conn, prefix, 1);
+  const uids = await reserveUIDs(conn, companyId, prefix, 1);
   return uids[0];
 }
 
 /**
- * Reserve a contiguous block of N UIDs within a single lock/read/update cycle.
- *
- * @param conn - A mysql2 PoolConnection within an active transaction
- * @param prefix - Entity prefix: 'Item', 'QC', or 'IIR'
- * @param count - Number of contiguous UIDs to reserve
- * @returns Array of formatted UID strings
+ * Reserve a contiguous block of N UIDs for a company in a single
+ * lock/read/update cycle.
  */
 export async function reserveUIDs(
   conn: PoolConnection,
-  prefix: string,
+  companyId: number,
+  prefix: UIDPrefix,
   count: number
 ): Promise<string[]> {
   if (count <= 0) {
     return [];
   }
 
-  // Lock the counter row once
+  // A company's first record of this type creates its counter row. A
+  // concurrent first insert blocks on the duplicate key until this
+  // transaction commits, then finds the row and locks it below.
+  await conn.execute(
+    'INSERT IGNORE INTO CompanyUIDCounters (CompanyID, EntityPrefix, CurrentValue, PadWidth) VALUES (?, ?, 0, ?)',
+    [companyId, prefix, DEFAULT_PAD_WIDTH]
+  );
+
   const [rows] = await conn.execute(
-    'SELECT CurrentValue, PadWidth FROM UIDCounters WHERE EntityPrefix = ? FOR UPDATE',
-    [prefix]
+    'SELECT CurrentValue, PadWidth FROM CompanyUIDCounters WHERE CompanyID = ? AND EntityPrefix = ? FOR UPDATE',
+    [companyId, prefix]
   );
 
   const counters = rows as UIDCounter[];
   if (counters.length === 0) {
-    throw new Error(`No UIDCounter row found for prefix "${prefix}"`);
+    throw new Error(`No UID counter for company ${companyId}, prefix "${prefix}"`);
   }
 
   const { CurrentValue, PadWidth } = counters[0];
   const uids: string[] = [];
 
   for (let i = 1; i <= count; i++) {
-    const val = CurrentValue + i;
-    const valStr = String(val);
-    const padded =
-      valStr.length >= PadWidth ? valStr : valStr.padStart(PadWidth, '0');
-    uids.push(`${prefix}${padded}`);
+    uids.push(`${prefix}${String(CurrentValue + i).padStart(PadWidth, '0')}`);
   }
 
-  const finalValue = CurrentValue + count;
-
-  // Update the counter once
   await conn.execute(
-    'UPDATE UIDCounters SET CurrentValue = ? WHERE EntityPrefix = ?',
-    [finalValue, prefix]
+    'UPDATE CompanyUIDCounters SET CurrentValue = ? WHERE CompanyID = ? AND EntityPrefix = ?',
+    [CurrentValue + count, companyId, prefix]
   );
 
   return uids;

@@ -1,13 +1,16 @@
 // ============================================================================
-// GET /api/inspection-reports — paginated list
+// GET /api/inspection-reports — paginated list (caller's company only)
 // POST /api/inspection-reports — create report + snapshot results
 // ============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
-import { withAuth } from '@/lib/middleware';
+import { withAuth, withWriteAuth } from '@/lib/middleware';
 import { query, withTransaction } from '@/lib/db';
 import { generateUID } from '@/lib/uid';
 import { writeCreateAudit } from '@/lib/audit';
+import { assertLookupIdsVisible } from '@/lib/lookups';
+import { requireCompanyId } from '@/lib/tenant';
+import { assertOwnFileKey } from '@/lib/upload';
 import { syncInspectionReportToSheet, appendAuditLogToSheet } from '@/lib/sheets-sync';
 import { createInspectionReportSchema } from '@/validators/inspection-report';
 import { errorResponse, validationErrorResponse, AppError } from '@/lib/errors';
@@ -16,8 +19,9 @@ import type { InspectionReportWithLookups } from '@/types/db';
 // ---------------------------------------------------------------------------
 // GET — List Inspection Reports
 // ---------------------------------------------------------------------------
-export const GET = withAuth(async (req: NextRequest) => {
+export const GET = withAuth(async (req: NextRequest, ctx) => {
   try {
+    const companyId = requireCompanyId(ctx.user);
     const url = req.nextUrl;
     const page = Math.max(1, parseInt(url.searchParams.get('page') || '1', 10) || 1);
     const pageSize = Math.min(parseInt(url.searchParams.get('pageSize') || '15', 10), 100);
@@ -30,14 +34,14 @@ export const GET = withAuth(async (req: NextRequest) => {
       ItemName: 'r.ItemName',
       InspectionDate: 'r.InspectionDate',
       GRNNo: 'r.GRNNo',
-      StatusName: 'rs.StatusName',
+      StatusName: 'rs.ResultStatusName',
       CreatedAt: 'r.CreatedAt',
       UpdatedAt: 'r.UpdatedAt',
     };
     const orderCol = sortableColumns[sortBy] || 'r.CreatedAt';
 
-    const conditions: string[] = [];
-    const params: unknown[] = [];
+    const conditions: string[] = ['r.CompanyID = ?'];
+    const params: unknown[] = [companyId];
 
     if (search) {
       conditions.push('(r.ItemName LIKE ? OR r.IIRUID LIKE ? OR r.GRNNo LIKE ?)');
@@ -45,7 +49,7 @@ export const GET = withAuth(async (req: NextRequest) => {
       params.push(pattern, pattern, pattern);
     }
 
-    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const whereClause = `WHERE ${conditions.join(' AND ')}`;
     const offset = (page - 1) * pageSize;
 
     const rows = await query<InspectionReportWithLookups>(
@@ -81,8 +85,9 @@ export const GET = withAuth(async (req: NextRequest) => {
 // ---------------------------------------------------------------------------
 // POST — Create Inspection Report + Snapshot Results
 // ---------------------------------------------------------------------------
-export const POST = withAuth(async (req: NextRequest, ctx) => {
+export const POST = withWriteAuth(async (req: NextRequest, ctx) => {
   try {
+    const companyId = requireCompanyId(ctx.user);
     const body = await req.json();
     const parsed = createInspectionReportSchema.safeParse(body);
 
@@ -95,9 +100,10 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     // Guard against a client-side race (e.g. rapid item switch before an
     // earlier QC-template fetch resolves) saving results snapshotted from a
     // QC Master template that doesn't actually belong to the selected item.
+    // Scoping by company also rules out another company's template.
     const [qcOwner] = await query<{ ItemUID: string }>(
-      'SELECT ItemUID FROM QCMaster WHERE QCUID = ?',
-      [data.QCUID]
+      'SELECT ItemUID FROM QCMaster WHERE CompanyID = ? AND QCUID = ?',
+      [companyId, data.QCUID]
     );
     if (!qcOwner || qcOwner.ItemUID !== data.ItemUID) {
       throw new AppError(
@@ -107,18 +113,29 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       );
     }
 
+    assertOwnFileKey(data.InvoicePath, companyId);
+
+    await assertLookupIdsVisible(companyId, [
+      { slug: 'specification-criteria', ids: data.Results.map((r) => r.CriteriaID) },
+      { slug: 'method-of-inspection', ids: data.Results.map((r) => r.MethodID) },
+      { slug: 'inspection-frequency', ids: data.Results.map((r) => r.FrequencyID) },
+      { slug: 'responsibility', ids: data.Results.map((r) => r.ResponsibilityID) },
+      { slug: 'reaction-plan', ids: data.Results.map((r) => r.ReactionPlanID) },
+    ]);
+
     const iirUID = await withTransaction(async (conn) => {
-      const uid = await generateUID(conn, 'IIR');
+      const uid = await generateUID(conn, companyId, 'IIR');
 
       // Format inspection date for MySQL DATE column
       const formattedDate = data.InspectionDate.split('T')[0];
 
       await conn.execute(
         `INSERT INTO InspectionReports (
-          IIRUID, InspectionDate, ItemUID, ItemName, QCUID, GRNNo,
+          CompanyID, IIRUID, InspectionDate, ItemUID, ItemName, QCUID, GRNNo,
           InvoicePath, InspectionStatusID, OwnerUserID, CreatedAt, UpdatedAt
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
         [
+          companyId,
           uid,
           formattedDate,
           data.ItemUID,
@@ -131,7 +148,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
         ]
       );
 
-      await writeCreateAudit(conn, 'InspectionReports', uid, ctx.user.userId);
+      await writeCreateAudit(conn, companyId, 'InspectionReports', uid, ctx.user.userId);
 
       // Snapshot results into InspectionResults (one-time copy for audit integrity)
       for (let i = 0; i < data.Results.length; i++) {
@@ -140,11 +157,12 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
         await conn.execute(
           `INSERT INTO InspectionResults (
-            IIRUID, SrNo, Parameter, CriteriaID, MinVal, MaxVal, OtherValue,
+            CompanyID, IIRUID, SrNo, Parameter, CriteriaID, MinVal, MaxVal, OtherValue,
             MethodID, FrequencyID, ResponsibilityID, ReactionPlanID,
             Specification, Actual, ResultStatusID, CreatedAt, UpdatedAt
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
           [
+            companyId,
             uid,
             srNo,
             r.Parameter,
@@ -166,8 +184,8 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       return uid;
     });
 
-    await syncInspectionReportToSheet(iirUID);
-    await appendAuditLogToSheet([
+    await syncInspectionReportToSheet(companyId, iirUID);
+    await appendAuditLogToSheet(companyId, [
       {
         tableName: 'InspectionReports',
         recordId: iirUID,

@@ -30,12 +30,6 @@ export interface ApiSuccess {
 // Auth
 // ---------------------------------------------------------------------------
 
-export interface SignupRequest {
-  name: string;
-  email: string;
-  password: string;
-}
-
 export interface LoginRequest {
   email: string;
   password: string;
@@ -219,7 +213,6 @@ export interface DashboardCounts {
   totalItems: number;
   totalQCTemplates: number;
   inspectionsThisMonth: number;
-  pendingApprovals: number;
 }
 
 export interface InspectionTrendPoint {

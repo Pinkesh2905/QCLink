@@ -11,6 +11,7 @@ import { withAdmin } from '@/lib/middleware';
 import { query, withTransaction } from '@/lib/db';
 import { reserveUIDs } from '@/lib/uid';
 import { writeAuditLog } from '@/lib/audit';
+import { requireCompanyId } from '@/lib/tenant';
 import { parseCSV } from '@/lib/csv';
 import { errorResponse, AppError } from '@/lib/errors';
 import type { Category, UnitOfStock, SubCategory } from '@/types/db';
@@ -39,6 +40,7 @@ interface RowError {
 
 export const POST = withAdmin(async (req: NextRequest, ctx) => {
   try {
+    const companyId = requireCompanyId(ctx.user);
     const isConfirm = req.nextUrl.searchParams.get('confirm') === 'true';
 
     // 1. Extract CSV string
@@ -70,11 +72,12 @@ export const POST = withAdmin(async (req: NextRequest, ctx) => {
       throw new AppError('No data rows found in uploaded CSV file', 400);
     }
 
-    // 3. Load active lookups
+    // 3. Load active lookups visible to this company (shared + its own)
+    const visible = 'IsActive = 1 AND (CompanyID IS NULL OR CompanyID = ?)';
     const [categories, uoms, subCategories] = await Promise.all([
-      query<Category>('SELECT CategoryID, CategoryName FROM Categories WHERE IsActive = 1'),
-      query<UnitOfStock>('SELECT UOMID, UOMName FROM UnitOfStock WHERE IsActive = 1'),
-      query<SubCategory>('SELECT SubCategoryID, SubCategoryName FROM SubCategories WHERE IsActive = 1'),
+      query<Category>(`SELECT CategoryID, CategoryName FROM Categories WHERE ${visible}`, [companyId]),
+      query<UnitOfStock>(`SELECT UOMID, UOMName FROM UnitOfStock WHERE ${visible}`, [companyId]),
+      query<SubCategory>(`SELECT SubCategoryID, SubCategoryName FROM SubCategories WHERE ${visible}`, [companyId]),
     ]);
 
     const categoryMap = new Map<string, Category>();
@@ -88,7 +91,8 @@ export const POST = withAdmin(async (req: NextRequest, ctx) => {
 
     // 4. Load existing items for uniqueness: (LOWER(ItemName), CategoryID)
     const existingItems = await query<{ name: string; catId: number }>(
-      'SELECT LOWER(ItemName) as name, CategoryID as catId FROM Items'
+      'SELECT LOWER(ItemName) as name, CategoryID as catId FROM Items WHERE CompanyID = ?',
+      [companyId]
     );
     const existingKeys = new Set(existingItems.map((i) => `${i.name}:::${i.catId}`));
 
@@ -271,7 +275,7 @@ export const POST = withAdmin(async (req: NextRequest, ctx) => {
 
     const insertedUIDs = await withTransaction(async (conn) => {
       // 1. Reserve contiguous UIDs in a single atomic operation
-      const uids = await reserveUIDs(conn, 'Item', validRows.length);
+      const uids = await reserveUIDs(conn, companyId, 'Item', validRows.length);
 
       // 2. Insert all valid items
       for (let idx = 0; idx < validRows.length; idx++) {
@@ -280,11 +284,12 @@ export const POST = withAdmin(async (req: NextRequest, ctx) => {
 
         await conn.execute(
           `INSERT INTO Items (
-            ItemUID, ItemName, CategoryID, UOMID, SubCategoryID,
+            CompanyID, ItemUID, ItemName, CategoryID, UOMID, SubCategoryID,
             Make, Size, CurrentStock, MPQ, MinLevel,
             OwnerUserID, CreatedAt, UpdatedAt
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
           [
+            companyId,
             uid,
             item.ItemName,
             item.CategoryID,
@@ -302,6 +307,7 @@ export const POST = withAdmin(async (req: NextRequest, ctx) => {
 
       // 3. Write one AuditLog entry per created item
       const auditEntries = uids.map((uid) => ({
+        companyId,
         tableName: 'Items',
         recordId: uid,
         actionType: 'CREATE' as const,

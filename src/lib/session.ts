@@ -3,9 +3,12 @@
 // Cookie get/set/clear and server-side session validation with sliding expiry.
 // ============================================================================
 
+import { cache } from 'react';
 import { cookies } from 'next/headers';
 import { query } from './db';
 import { verifyJWT, hashToken } from './auth';
+import { APP_CODE } from './plans';
+import { evaluateTenantAccess, USER_WITH_TENANT_SELECT, type TenantRow } from './tenant';
 import type { SessionUser } from '@/types/auth';
 import type { User, UserSession } from '@/types/db';
 
@@ -82,15 +85,18 @@ export async function validateSession(): Promise<SessionUser | null> {
 
   if (sessions.length === 0) return null;
 
-  // 3. Fetch the user to get current name/email/role
-  const users = await query<User>(
-    `SELECT * FROM Users WHERE UserID = ? AND Status = 'Active' LIMIT 1`,
-    [payload.userId]
+  // 3. Fetch the user with their company + plan, and re-check tenant access
+  //    (a suspended company or removed subscription ends the session here)
+  const users = await query<User & TenantRow>(
+    `${USER_WITH_TENANT_SELECT} WHERE u.UserID = ? AND u.Status = 'Active' LIMIT 1`,
+    [APP_CODE, payload.userId]
   );
 
   if (users.length === 0) return null;
 
   const user = users[0];
+  const access = evaluateTenantAccess(user);
+  if (!access.allowed) return null;
 
   // 4. Slide the expiry forward (fire and forget — don't block the response)
   query(
@@ -107,5 +113,15 @@ export async function validateSession(): Promise<SessionUser | null> {
     email: user.Email,
     role: user.Role,
     sessionId: sessions[0].SessionID,
+    companyId: user.CompanyID,
+    companyName: user.CompanyName,
+    subscriptionEndDate: user.SubscriptionEndDate,
+    readOnly: access.readOnly,
   };
 }
+
+/**
+ * Per-request memoized session lookup for server components, so a layout and
+ * the page it wraps share one validation instead of querying twice.
+ */
+export const getCurrentUser = cache(validateSession);

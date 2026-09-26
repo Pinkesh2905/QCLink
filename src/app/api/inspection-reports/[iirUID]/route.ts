@@ -4,9 +4,11 @@
 // ============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
-import { withAuth } from '@/lib/middleware';
+import { withAuth, withWriteAuth } from '@/lib/middleware';
 import { query, withTransaction } from '@/lib/db';
 import { diffFields, writeAuditDiffs, writeAuditLog } from '@/lib/audit';
+import { requireCompanyId } from '@/lib/tenant';
+import { assertOwnFileKey } from '@/lib/upload';
 import { syncInspectionReportToSheet, appendAuditLogToSheet, type SheetAuditEntry } from '@/lib/sheets-sync';
 import { enforceFieldPermissions } from '@/lib/field-permissions';
 import { updateInspectionReportSchema } from '@/validators/inspection-report';
@@ -23,6 +25,7 @@ import type {
 // ---------------------------------------------------------------------------
 export const GET = withAuth(async (_req: NextRequest, ctx) => {
   try {
+    const companyId = requireCompanyId(ctx.user);
     const params = await ctx.params;
     const iirUID = params.iirUID;
 
@@ -33,8 +36,8 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
        FROM InspectionReports r
        LEFT JOIN ResultStatus rs ON r.InspectionStatusID = rs.ResultStatusID
        LEFT JOIN Users usr ON r.OwnerUserID = usr.UserID
-       WHERE r.IIRUID = ?`,
-      [iirUID]
+       WHERE r.CompanyID = ? AND r.IIRUID = ?`,
+      [companyId, iirUID]
     );
 
     if (headers.length === 0) {
@@ -56,9 +59,9 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
        LEFT JOIN Responsibility resp ON res.ResponsibilityID = resp.ResponsibilityID
        LEFT JOIN ReactionPlan rp ON res.ReactionPlanID = rp.ReactionPlanID
        LEFT JOIN ResultStatus rs ON res.ResultStatusID = rs.ResultStatusID
-       WHERE res.IIRUID = ?
+       WHERE res.CompanyID = ? AND res.IIRUID = ?
        ORDER BY res.SrNo ASC`,
-      [iirUID]
+      [companyId, iirUID]
     );
 
     return NextResponse.json({
@@ -73,8 +76,9 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
 // ---------------------------------------------------------------------------
 // PUT — Update Inspection Report
 // ---------------------------------------------------------------------------
-export const PUT = withAuth(async (req: NextRequest, ctx) => {
+export const PUT = withWriteAuth(async (req: NextRequest, ctx) => {
   try {
+    const companyId = requireCompanyId(ctx.user);
     const params = await ctx.params;
     const iirUID = params.iirUID;
 
@@ -88,8 +92,8 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
     const data = parsed.data;
 
     const [currentIR] = await query<InspectionReport>(
-      'SELECT * FROM InspectionReports WHERE IIRUID = ?',
-      [iirUID]
+      'SELECT * FROM InspectionReports WHERE CompanyID = ? AND IIRUID = ?',
+      [companyId, iirUID]
     );
 
     if (!currentIR) {
@@ -104,7 +108,10 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
       newHeaderRow.InspectionDate = data.InspectionDate.split('T')[0];
     }
     if (data.GRNNo !== undefined) newHeaderRow.GRNNo = data.GRNNo;
-    if (data.InvoicePath !== undefined) newHeaderRow.InvoicePath = data.InvoicePath;
+    if (data.InvoicePath !== undefined) {
+      assertOwnFileKey(data.InvoicePath, companyId, currentIR.InvoicePath);
+      newHeaderRow.InvoicePath = data.InvoicePath;
+    }
     if (data.InspectionStatusID !== undefined) newHeaderRow.InspectionStatusID = data.InspectionStatusID;
 
     const headerDiffs = diffFields(
@@ -122,8 +129,9 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
     let resultsChanged = false;
     if (data.Results && data.Results.length > 0) {
       const existingResults = await query<InspectionResult>(
-        'SELECT SrNo, Actual, ResultStatusID FROM InspectionResults WHERE IIRUID = ? ORDER BY SrNo ASC',
-        [iirUID]
+        `SELECT SrNo, Actual, ResultStatusID FROM InspectionResults
+         WHERE CompanyID = ? AND IIRUID = ? ORDER BY SrNo ASC`,
+        [companyId, iirUID]
       );
 
       const existingMap = new Map<number, InspectionResult>();
@@ -179,17 +187,18 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
         await conn.execute(
           `UPDATE InspectionReports
            SET InspectionDate = ?, GRNNo = ?, InvoicePath = ?, InspectionStatusID = ?, UpdatedAt = NOW()
-           WHERE IIRUID = ?`,
+           WHERE CompanyID = ? AND IIRUID = ?`,
           [
             newHeaderRow.InspectionDate,
             newHeaderRow.GRNNo,
             newHeaderRow.InvoicePath ?? null,
             newHeaderRow.InspectionStatusID,
+            companyId,
             iirUID,
           ] as any
         );
 
-        await writeAuditDiffs(conn, 'InspectionReports', iirUID, headerDiffs, ctx.user.userId);
+        await writeAuditDiffs(conn, companyId, 'InspectionReports', iirUID, headerDiffs, ctx.user.userId);
       }
 
       // 2. Results updates (Actual, ResultStatusID)
@@ -198,13 +207,14 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
           await conn.execute(
             `UPDATE InspectionResults
              SET Actual = ?, ResultStatusID = ?, UpdatedAt = NOW()
-             WHERE IIRUID = ? AND SrNo = ?`,
-            [res.Actual ?? null, res.ResultStatusID ?? null, iirUID, res.SrNo]
+             WHERE CompanyID = ? AND IIRUID = ? AND SrNo = ?`,
+            [res.Actual ?? null, res.ResultStatusID ?? null, companyId, iirUID, res.SrNo]
           );
         }
 
         await writeAuditLog(conn, [
           {
+            companyId,
             tableName: 'InspectionResults',
             recordId: iirUID,
             actionType: 'UPDATE',
@@ -217,7 +227,7 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
       }
     });
 
-    await syncInspectionReportToSheet(iirUID);
+    await syncInspectionReportToSheet(companyId, iirUID);
 
     const sheetAuditEntries: SheetAuditEntry[] = headerDiffs.map((d) => ({
       tableName: 'InspectionReports',
@@ -241,7 +251,7 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
       });
     }
 
-    await appendAuditLogToSheet(sheetAuditEntries);
+    await appendAuditLogToSheet(companyId, sheetAuditEntries);
 
     return NextResponse.json({ message: 'Inspection Report updated successfully' });
   } catch (error) {

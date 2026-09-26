@@ -13,17 +13,18 @@ import {
   Package,
   ClipboardCheck,
   FileText,
+  CreditCard,
   Shield,
   LogOut,
   X,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
 
 interface NavItem {
   label: string;
   href: string;
   icon: React.ReactNode;
   adminOnly?: boolean;
+  userOnly?: boolean;
   badge?: number;
 }
 
@@ -35,28 +36,6 @@ interface SidebarProps {
 export function Sidebar({ mobileOpen = false, onCloseMobile }: SidebarProps) {
   const { user, logout } = useSession();
   const pathname = usePathname();
-  const [pendingCount, setPendingCount] = useState(0);
-
-  // Fetch pending approvals count for admin badge
-  useEffect(() => {
-    if (user?.Role !== 'Admin') return;
-
-    const fetchCount = async () => {
-      try {
-        const res = await fetch('/api/admin/pending-count');
-        if (res.ok) {
-          const data = await res.json();
-          setPendingCount(data.count);
-        }
-      } catch {
-        // Silently fail
-      }
-    };
-
-    fetchCount();
-    const interval = setInterval(fetchCount, 60000);
-    return () => clearInterval(interval);
-  }, [user?.Role]);
 
   const navItems: NavItem[] = [
     {
@@ -80,16 +59,22 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: SidebarProps) {
       icon: <FileText className="h-5 w-5 shrink-0" />,
     },
     {
+      label: 'Subscription',
+      href: '/app/subscription',
+      icon: <CreditCard className="h-5 w-5 shrink-0" />,
+      userOnly: true,
+    },
+    {
       label: 'Admin Panel',
-      href: '/app/admin/approvals',
+      href: '/app/admin/companies',
       icon: <Shield className="h-5 w-5 shrink-0" />,
       adminOnly: true,
-      badge: pendingCount,
     },
   ];
 
+  const isAdmin = user?.Role === 'Admin';
   const filteredItems = navItems.filter(
-    (item) => !item.adminOnly || user?.Role === 'Admin'
+    (item) => (!item.adminOnly || isAdmin) && (!item.userOnly || !isAdmin)
   );
 
   function isActive(href: string) {
@@ -135,6 +120,9 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: SidebarProps) {
       <div className="mb-2.5 rounded-lg bg-muted/60 px-3 py-2">
         <p className="text-xs font-semibold text-foreground truncate">{user?.Name}</p>
         <p className="text-[11px] text-muted-foreground truncate">{user?.Email}</p>
+        {user?.CompanyName && (
+          <p className="text-[11px] font-medium text-foreground/80 truncate mt-0.5">{user.CompanyName}</p>
+        )}
         <span className="inline-block mt-1 text-[10px] font-mono font-medium px-1.5 py-0.5 rounded bg-primary/10 text-primary">
           {user?.Role}
         </span>

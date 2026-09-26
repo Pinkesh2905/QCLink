@@ -11,7 +11,8 @@ const titleMap: Record<string, string> = {
   '/app/store-master': 'Store Master',
   '/app/qc-master': 'QC Master',
   '/app/inspection-report': 'Inspection Reports',
-  '/app/admin/approvals': 'User Approvals',
+  '/app/subscription': 'Subscription',
+  '/app/admin/companies': 'Companies',
   '/app/admin/users': 'User Directory',
   '/app/admin/master-data': 'Master Data Manager',
   '/app/admin/audit-log': 'Audit Log',
@@ -76,8 +77,8 @@ export function Header({ onToggleMobileNav }: HeaderProps) {
           <span className="text-xs font-medium text-foreground truncate max-w-[130px]">
             {user?.Name}
           </span>
-          <span className="text-[10px] text-muted-foreground">
-            {user?.Role}
+          <span className="text-[10px] text-muted-foreground truncate max-w-[160px]">
+            {user?.CompanyName ? `${user.CompanyName} · ${user.Role}` : user?.Role}
           </span>
         </div>
         {user && (

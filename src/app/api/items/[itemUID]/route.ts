@@ -1,12 +1,14 @@
 // ============================================================================
-// GET /api/items/[itemUID] — get item detail
+// GET /api/items/[itemUID] — get item detail (caller's company only)
 // PUT /api/items/[itemUID] — update item (with ItemName sync)
 // ============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
-import { withAuth } from '@/lib/middleware';
+import { withAuth, withWriteAuth } from '@/lib/middleware';
 import { query, withTransaction } from '@/lib/db';
 import { diffFields, writeAuditDiffs, writeAuditLog } from '@/lib/audit';
+import { assertLookupIdsVisible } from '@/lib/lookups';
+import { requireCompanyId } from '@/lib/tenant';
 import {
   syncItemToSheet,
   syncQCMasterToSheet,
@@ -24,6 +26,7 @@ import type { Item, ItemWithLookups } from '@/types/db';
 // ---------------------------------------------------------------------------
 export const GET = withAuth(async (_req: NextRequest, ctx) => {
   try {
+    const companyId = requireCompanyId(ctx.user);
     const params = await ctx.params;
     const itemUID = params.itemUID;
 
@@ -34,8 +37,8 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
        LEFT JOIN UnitOfStock u ON i.UOMID = u.UOMID
        LEFT JOIN SubCategories sc ON i.SubCategoryID = sc.SubCategoryID
        LEFT JOIN Users usr ON i.OwnerUserID = usr.UserID
-       WHERE i.ItemUID = ?`,
-      [itemUID]
+       WHERE i.CompanyID = ? AND i.ItemUID = ?`,
+      [companyId, itemUID]
     );
 
     if (rows.length === 0) {
@@ -51,8 +54,9 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
 // ---------------------------------------------------------------------------
 // PUT — Update Item
 // ---------------------------------------------------------------------------
-export const PUT = withAuth(async (req: NextRequest, ctx) => {
+export const PUT = withWriteAuth(async (req: NextRequest, ctx) => {
   try {
+    const companyId = requireCompanyId(ctx.user);
     const routeParams = await ctx.params;
     const itemUID = routeParams.itemUID;
 
@@ -67,27 +71,33 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
 
     // Fetch current row
     const [currentItem] = await query<Item>(
-      'SELECT * FROM Items WHERE ItemUID = ?',
-      [itemUID]
+      'SELECT * FROM Items WHERE CompanyID = ? AND ItemUID = ?',
+      [companyId, itemUID]
     );
 
     if (!currentItem) {
       throw new AppError('Item not found', 404);
     }
 
+    await assertLookupIdsVisible(companyId, [
+      { slug: 'categories', ids: [data.CategoryID] },
+      { slug: 'unit-of-stock', ids: [data.UOMID] },
+      { slug: 'sub-categories', ids: [data.SubCategoryID] },
+    ]);
+
     // Uniqueness check if ItemName or CategoryID changed
     const newName = data.ItemName ?? currentItem.ItemName;
     const newCat = data.CategoryID ?? currentItem.CategoryID;
-
-    if (
+    const identityChanged =
       newName.toLowerCase() !== currentItem.ItemName.toLowerCase() ||
-      newCat !== currentItem.CategoryID
-    ) {
+      newCat !== currentItem.CategoryID;
+
+    if (identityChanged) {
       const dupes = await query<{ ItemUID: string }>(
         `SELECT ItemUID FROM Items
-         WHERE LOWER(ItemName) = LOWER(?) AND CategoryID = ? AND ItemUID != ?
+         WHERE CompanyID = ? AND LOWER(ItemName) = LOWER(?) AND CategoryID = ? AND ItemUID != ?
          LIMIT 1`,
-        [newName, newCat, itemUID]
+        [companyId, newName, newCat, itemUID]
       );
 
       if (dupes.length > 0) {
@@ -127,15 +137,13 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
     const cascadedIIRUIDs: string[] = [];
 
     await withTransaction(async (conn) => {
-      // Re-check uniqueness immediately before writing (see items/route.ts POST
-      // for why: the earlier check ran outside this transaction).
-      if (
-        newName.toLowerCase() !== currentItem.ItemName.toLowerCase() ||
-        newCat !== currentItem.CategoryID
-      ) {
+      // Re-check uniqueness immediately before writing (see items/route.ts
+      // POST for why: the earlier check ran outside this transaction).
+      if (identityChanged) {
         const [dupeRecheck] = await conn.execute(
-          `SELECT ItemUID FROM Items WHERE LOWER(ItemName) = LOWER(?) AND CategoryID = ? AND ItemUID != ? LIMIT 1`,
-          [newName, newCat, itemUID]
+          `SELECT ItemUID FROM Items
+           WHERE CompanyID = ? AND LOWER(ItemName) = LOWER(?) AND CategoryID = ? AND ItemUID != ? LIMIT 1`,
+          [companyId, newName, newCat, itemUID]
         ) as [Array<{ ItemUID: string }>, unknown];
 
         if (dupeRecheck.length > 0) {
@@ -156,73 +164,77 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
       }
 
       fields.push('UpdatedAt = NOW()');
-      values.push(itemUID);
+      values.push(companyId, itemUID);
 
       await conn.execute(
-        `UPDATE Items SET ${fields.join(', ')} WHERE ItemUID = ?`,
+        `UPDATE Items SET ${fields.join(', ')} WHERE CompanyID = ? AND ItemUID = ?`,
         values as any
       );
 
       // Audit log diffs
-      await writeAuditDiffs(conn, 'Items', itemUID, diffs, ctx.user.userId);
+      await writeAuditDiffs(conn, companyId, 'Items', itemUID, diffs, ctx.user.userId);
 
       // Cross-module ItemName sync (Section 7)
       if (data.ItemName && data.ItemName !== currentItem.ItemName) {
         // Update QCMaster.ItemName
         const [qcResult] = await conn.execute(
-          'SELECT QCUID FROM QCMaster WHERE ItemUID = ?',
-          [itemUID]
+          'SELECT QCUID FROM QCMaster WHERE CompanyID = ? AND ItemUID = ?',
+          [companyId, itemUID]
         ) as [Array<{ QCUID: string }>, unknown];
 
         if (qcResult.length > 0) {
           await conn.execute(
-            'UPDATE QCMaster SET ItemName = ?, UpdatedAt = NOW() WHERE ItemUID = ?',
-            [data.ItemName, itemUID]
+            'UPDATE QCMaster SET ItemName = ?, UpdatedAt = NOW() WHERE CompanyID = ? AND ItemUID = ?',
+            [data.ItemName, companyId, itemUID]
           );
 
-          // AuditLog for each QCMaster row
-          const qcAuditEntries = qcResult.map((row) => ({
-            tableName: 'QCMaster',
-            recordId: row.QCUID,
-            actionType: 'UPDATE' as const,
-            fieldName: 'ItemName',
-            oldValue: currentItem.ItemName,
-            newValue: data.ItemName!,
-            changedByUserID: ctx.user.userId,
-          }));
-          await writeAuditLog(conn, qcAuditEntries);
+          await writeAuditLog(
+            conn,
+            qcResult.map((row) => ({
+              companyId,
+              tableName: 'QCMaster',
+              recordId: row.QCUID,
+              actionType: 'UPDATE' as const,
+              fieldName: 'ItemName',
+              oldValue: currentItem.ItemName,
+              newValue: data.ItemName!,
+              changedByUserID: ctx.user.userId,
+            }))
+          );
           cascadedQCUIDs.push(...qcResult.map((row) => row.QCUID));
         }
 
         // Update InspectionReports.ItemName
         const [irResult] = await conn.execute(
-          'SELECT IIRUID FROM InspectionReports WHERE ItemUID = ?',
-          [itemUID]
+          'SELECT IIRUID FROM InspectionReports WHERE CompanyID = ? AND ItemUID = ?',
+          [companyId, itemUID]
         ) as [Array<{ IIRUID: string }>, unknown];
 
         if (irResult.length > 0) {
           await conn.execute(
-            'UPDATE InspectionReports SET ItemName = ?, UpdatedAt = NOW() WHERE ItemUID = ?',
-            [data.ItemName, itemUID]
+            'UPDATE InspectionReports SET ItemName = ?, UpdatedAt = NOW() WHERE CompanyID = ? AND ItemUID = ?',
+            [data.ItemName, companyId, itemUID]
           );
 
-          // AuditLog for each IR row
-          const irAuditEntries = irResult.map((row) => ({
-            tableName: 'InspectionReports',
-            recordId: row.IIRUID,
-            actionType: 'UPDATE' as const,
-            fieldName: 'ItemName',
-            oldValue: currentItem.ItemName,
-            newValue: data.ItemName!,
-            changedByUserID: ctx.user.userId,
-          }));
-          await writeAuditLog(conn, irAuditEntries);
+          await writeAuditLog(
+            conn,
+            irResult.map((row) => ({
+              companyId,
+              tableName: 'InspectionReports',
+              recordId: row.IIRUID,
+              actionType: 'UPDATE' as const,
+              fieldName: 'ItemName',
+              oldValue: currentItem.ItemName,
+              newValue: data.ItemName!,
+              changedByUserID: ctx.user.userId,
+            }))
+          );
           cascadedIIRUIDs.push(...irResult.map((row) => row.IIRUID));
         }
       }
     });
 
-    await syncItemToSheet(itemUID);
+    await syncItemToSheet(companyId, itemUID);
 
     const sheetAuditEntries: SheetAuditEntry[] = diffs.map((d) => ({
       tableName: 'Items',
@@ -235,7 +247,7 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
     }));
 
     for (const qcUID of cascadedQCUIDs) {
-      await syncQCMasterToSheet(qcUID);
+      await syncQCMasterToSheet(companyId, qcUID);
       sheetAuditEntries.push({
         tableName: 'QCMaster',
         recordId: qcUID,
@@ -248,7 +260,7 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
     }
 
     for (const iirUID of cascadedIIRUIDs) {
-      await syncInspectionReportToSheet(iirUID);
+      await syncInspectionReportToSheet(companyId, iirUID);
       sheetAuditEntries.push({
         tableName: 'InspectionReports',
         recordId: iirUID,
@@ -260,7 +272,7 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
       });
     }
 
-    await appendAuditLogToSheet(sheetAuditEntries);
+    await appendAuditLogToSheet(companyId, sheetAuditEntries);
 
     return NextResponse.json({ message: 'Item updated successfully' });
   } catch (error) {

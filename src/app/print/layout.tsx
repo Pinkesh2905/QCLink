@@ -1,24 +1,20 @@
 import { redirect } from 'next/navigation';
-import { validateSession } from '@/lib/session';
+import { getCurrentUser } from '@/lib/session';
 import { SessionProvider } from '@/hooks/use-session';
+import { toClientSessionUser } from '@/types/auth';
 
 export default async function PrintLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const session = await validateSession();
+  const session = await getCurrentUser();
 
   if (!session) {
     redirect('/login');
   }
 
-  const initialUser = {
-    UserID: session.userId,
-    Name: session.name,
-    Email: session.email,
-    Role: session.role,
-  };
+  const initialUser = toClientSessionUser(session);
 
   return (
     <SessionProvider initialUser={initialUser}>

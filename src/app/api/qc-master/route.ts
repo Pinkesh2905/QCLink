@@ -1,23 +1,27 @@
 // ============================================================================
-// GET /api/qc-master — paginated list of QC Master records
+// GET /api/qc-master — paginated list of QC Master records (caller's company)
 // POST /api/qc-master — create QC Master record + specification child rows
 // ============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
-import { withAuth } from '@/lib/middleware';
+import { withAuth, withWriteAuth } from '@/lib/middleware';
 import { query, withTransaction } from '@/lib/db';
 import { generateUID } from '@/lib/uid';
 import { writeCreateAudit } from '@/lib/audit';
+import { assertLookupIdsVisible } from '@/lib/lookups';
+import { requireCompanyId } from '@/lib/tenant';
+import { assertOwnFileKey } from '@/lib/upload';
 import { syncQCMasterToSheet, appendAuditLogToSheet } from '@/lib/sheets-sync';
 import { createQCMasterSchema, computeSpecification } from '@/validators/qc-master';
-import { errorResponse, validationErrorResponse } from '@/lib/errors';
+import { errorResponse, validationErrorResponse, AppError } from '@/lib/errors';
 import type { QCMasterWithLookups, SpecificationCriteria } from '@/types/db';
 
 // ---------------------------------------------------------------------------
 // GET — List QC Master records
 // ---------------------------------------------------------------------------
-export const GET = withAuth(async (req: NextRequest) => {
+export const GET = withAuth(async (req: NextRequest, ctx) => {
   try {
+    const companyId = requireCompanyId(ctx.user);
     const url = req.nextUrl;
     const page = Math.max(1, parseInt(url.searchParams.get('page') || '1', 10) || 1);
     const pageSize = Math.min(parseInt(url.searchParams.get('pageSize') || '15', 10), 100);
@@ -35,8 +39,8 @@ export const GET = withAuth(async (req: NextRequest) => {
     };
     const orderCol = sortableColumns[sortBy] || 'q.CreatedAt';
 
-    const conditions: string[] = [];
-    const params: unknown[] = [];
+    const conditions: string[] = ['q.CompanyID = ?'];
+    const params: unknown[] = [companyId];
 
     if (itemUID) {
       conditions.push('q.ItemUID = ?');
@@ -49,12 +53,13 @@ export const GET = withAuth(async (req: NextRequest) => {
       params.push(pattern, pattern);
     }
 
-    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const whereClause = `WHERE ${conditions.join(' AND ')}`;
     const offset = (page - 1) * pageSize;
 
     const rows = await query<QCMasterWithLookups>(
       `SELECT q.*, usr.Name AS OwnerName,
-              (SELECT COUNT(*) FROM QCSpecifications s WHERE s.QCUID = q.QCUID) AS SpecCount
+              (SELECT COUNT(*) FROM QCSpecifications s
+               WHERE s.CompanyID = q.CompanyID AND s.QCUID = q.QCUID) AS SpecCount
        FROM QCMaster q
        LEFT JOIN Users usr ON q.OwnerUserID = usr.UserID
        ${whereClause}
@@ -83,8 +88,9 @@ export const GET = withAuth(async (req: NextRequest) => {
 // ---------------------------------------------------------------------------
 // POST — Create QC Master record + Specifications
 // ---------------------------------------------------------------------------
-export const POST = withAuth(async (req: NextRequest, ctx) => {
+export const POST = withWriteAuth(async (req: NextRequest, ctx) => {
   try {
+    const companyId = requireCompanyId(ctx.user);
     const body = await req.json();
     const parsed = createQCMasterSchema.safeParse(body);
 
@@ -93,6 +99,26 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     }
 
     const { ItemUID, ItemName, ImagePath, Specifications } = parsed.data;
+
+    // The item must exist in this company (the composite FK would also
+    // reject it, but with an opaque 500 instead of a clear message).
+    const [item] = await query<{ ItemUID: string }>(
+      'SELECT ItemUID FROM Items WHERE CompanyID = ? AND ItemUID = ?',
+      [companyId, ItemUID]
+    );
+    if (!item) {
+      throw new AppError('Selected item not found.', 400, 'ItemUID');
+    }
+
+    assertOwnFileKey(ImagePath, companyId);
+
+    await assertLookupIdsVisible(companyId, [
+      { slug: 'specification-criteria', ids: Specifications.map((s) => s.CriteriaID) },
+      { slug: 'method-of-inspection', ids: Specifications.map((s) => s.MethodID) },
+      { slug: 'inspection-frequency', ids: Specifications.map((s) => s.FrequencyID) },
+      { slug: 'responsibility', ids: Specifications.map((s) => s.ResponsibilityID) },
+      { slug: 'reaction-plan', ids: Specifications.map((s) => s.ReactionPlanID) },
+    ]);
 
     // Load specification criteria lookup map to compute Specification text server-side
     const criteriaRows = await query<SpecificationCriteria>(
@@ -104,16 +130,16 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     }
 
     const qcUID = await withTransaction(async (conn) => {
-      const uid = await generateUID(conn, 'QC');
+      const uid = await generateUID(conn, companyId, 'QC');
 
       // Insert QC Master Header
       await conn.execute(
-        `INSERT INTO QCMaster (QCUID, ItemUID, ItemName, ImagePath, OwnerUserID, CreatedAt, UpdatedAt)
-         VALUES (?, ?, ?, ?, ?, NOW(), NOW())`,
-        [uid, ItemUID, ItemName, ImagePath ?? null, ctx.user.userId]
+        `INSERT INTO QCMaster (CompanyID, QCUID, ItemUID, ItemName, ImagePath, OwnerUserID, CreatedAt, UpdatedAt)
+         VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+        [companyId, uid, ItemUID, ItemName, ImagePath ?? null, ctx.user.userId]
       );
 
-      await writeCreateAudit(conn, 'QCMaster', uid, ctx.user.userId);
+      await writeCreateAudit(conn, companyId, 'QCMaster', uid, ctx.user.userId);
 
       // Insert QCSpecifications rows with computed Specification
       for (let i = 0; i < Specifications.length; i++) {
@@ -129,11 +155,12 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
         await conn.execute(
           `INSERT INTO QCSpecifications (
-            QCUID, SrNo, Parameter, CriteriaID, MinVal, MaxVal, OtherValue,
+            CompanyID, QCUID, SrNo, Parameter, CriteriaID, MinVal, MaxVal, OtherValue,
             MethodID, FrequencyID, ResponsibilityID, ReactionPlanID,
             Specification, CreatedAt, UpdatedAt
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
           [
+            companyId,
             uid,
             srNo,
             spec.Parameter,
@@ -153,8 +180,8 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       return uid;
     });
 
-    await syncQCMasterToSheet(qcUID);
-    await appendAuditLogToSheet([
+    await syncQCMasterToSheet(companyId, qcUID);
+    await appendAuditLogToSheet(companyId, [
       {
         tableName: 'QCMaster',
         recordId: qcUID,

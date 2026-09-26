@@ -83,13 +83,35 @@ export function validateUploadFile(file: File, type: UploadType): void {
   }
 }
 
+/** Storage prefix for a company's files, e.g. "c3/". */
+export function companyKeyPrefix(companyId: number): string {
+  return `c${companyId}/`;
+}
+
+/**
+ * A record may only point at a file its own company uploaded (or keep the
+ * value it already has — pre-multitenancy files have no company prefix).
+ */
+export function assertOwnFileKey(
+  key: string | null | undefined,
+  companyId: number,
+  currentValue: string | null = null
+): void {
+  if (!key || key === currentValue) return;
+  if (!key.startsWith(companyKeyPrefix(companyId))) {
+    throw new AppError('Invalid file reference. Please upload the file again.', 400);
+  }
+}
+
 /**
  * Save an uploaded file to S3 or local disk (if S3 is unconfigured).
- * Returns the object key (e.g. "qc-images/1725170000-a1b2c3.jpg").
+ * Returns the object key (e.g. "c3/qc-images/1725170000-a1b2c3.jpg"). The
+ * company prefix lets the file route check ownership before serving it.
  */
 export async function saveUploadedFile(
   file: File,
-  type: UploadType
+  type: UploadType,
+  companyId: number
 ): Promise<string> {
   validateUploadFile(file, type);
 
@@ -98,7 +120,8 @@ export async function saveUploadedFile(
 
   const ext = path.extname(file.name) || '.bin';
   const uniqueName = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}${ext}`;
-  const objectKey = `${type}/${uniqueName}`;
+  const folder = `${companyKeyPrefix(companyId)}${type}`;
+  const objectKey = `${folder}/${uniqueName}`;
 
   if (isS3Configured()) {
     const client = getS3Client();
@@ -121,7 +144,7 @@ export async function saveUploadedFile(
       hasWarnedS3Fallback = true;
     }
 
-    const uploadDir = path.join(process.cwd(), 'public', 'uploads', type);
+    const uploadDir = path.join(process.cwd(), 'public', 'uploads', folder);
     await mkdir(uploadDir, { recursive: true });
     await writeFile(path.join(uploadDir, uniqueName), buffer);
   }

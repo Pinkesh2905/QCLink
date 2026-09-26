@@ -9,17 +9,19 @@ import { withAuth } from '@/lib/middleware';
 import { query } from '@/lib/db';
 import { generateCSV } from '@/lib/csv';
 import { formatISTForExport } from '@/lib/datetime';
+import { requireCompanyId } from '@/lib/tenant';
 import { errorResponse } from '@/lib/errors';
 import type { ItemWithLookups } from '@/types/db';
 
-export const GET = withAuth(async (req: NextRequest) => {
+export const GET = withAuth(async (req: NextRequest, ctx) => {
   try {
+    const companyId = requireCompanyId(ctx.user);
     const url = req.nextUrl;
     const search = url.searchParams.get('search') || '';
     const exportAll = url.searchParams.get('exportAll') === 'true';
 
-    const conditions: string[] = [];
-    const params: unknown[] = [];
+    const conditions: string[] = ['i.CompanyID = ?'];
+    const params: unknown[] = [companyId];
 
     if (search && !exportAll) {
       conditions.push('(i.ItemName LIKE ? OR i.ItemUID LIKE ? OR c.CategoryName LIKE ?)');
@@ -27,7 +29,7 @@ export const GET = withAuth(async (req: NextRequest) => {
       params.push(pattern, pattern, pattern);
     }
 
-    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const whereClause = `WHERE ${conditions.join(' AND ')}`;
 
     const rows = await query<ItemWithLookups>(
       `SELECT i.*, c.CategoryName, u.UOMName, sc.SubCategoryName, usr.Name AS OwnerName

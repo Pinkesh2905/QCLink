@@ -17,18 +17,18 @@ export interface SheetsConfig {
   privateKey: string;
 }
 
+/**
+ * Service-account credentials are app-wide; the target spreadsheet is
+ * per company (Companies.GoogleSheetID), shared with the service account.
+ */
 export function isSheetsConfigured(): boolean {
-  return !!(
-    process.env.GOOGLE_SHEETS_SPREADSHEET_ID &&
-    process.env.GOOGLE_SHEETS_CLIENT_EMAIL &&
-    process.env.GOOGLE_SHEETS_PRIVATE_KEY
-  );
+  return !!(process.env.GOOGLE_SHEETS_CLIENT_EMAIL && process.env.GOOGLE_SHEETS_PRIVATE_KEY);
 }
 
-function getConfig(): SheetsConfig | null {
-  if (!isSheetsConfigured()) return null;
+function getConfig(spreadsheetId: string): SheetsConfig | null {
+  if (!isSheetsConfigured() || !spreadsheetId) return null;
   return {
-    spreadsheetId: process.env.GOOGLE_SHEETS_SPREADSHEET_ID!,
+    spreadsheetId,
     clientEmail: process.env.GOOGLE_SHEETS_CLIENT_EMAIL!,
     // .env stores the PEM with literal "\n" escapes — restore real newlines.
     privateKey: process.env.GOOGLE_SHEETS_PRIVATE_KEY!.replace(/\\n/g, '\n'),
@@ -115,6 +115,7 @@ async function sheetsFetch(
 // Tab bookkeeping — create the tab + header row on first use, cache sheetId.
 // ---------------------------------------------------------------------------
 
+// Keyed by spreadsheet + tab: every company's sheet has its own tab IDs.
 const tabIdCache = new Map<string, number>();
 
 export function colLetter(index0Based: number): string {
@@ -133,7 +134,8 @@ async function ensureTab(
   tabName: string,
   headers: string[]
 ): Promise<number> {
-  const cached = tabIdCache.get(tabName);
+  const cacheKey = `${config.spreadsheetId}::${tabName}`;
+  const cached = tabIdCache.get(cacheKey);
   if (cached !== undefined) return cached;
 
   const meta = (await sheetsFetch(config, '?fields=sheets.properties')) as {
@@ -142,7 +144,7 @@ async function ensureTab(
 
   const existing = meta.sheets.find((s) => s.properties.title === tabName);
   if (existing) {
-    tabIdCache.set(tabName, existing.properties.sheetId);
+    tabIdCache.set(cacheKey, existing.properties.sheetId);
     return existing.properties.sheetId;
   }
 
@@ -154,7 +156,7 @@ async function ensureTab(
   })) as { replies: { addSheet: { properties: { sheetId: number } } }[] };
 
   const sheetId = addResult.replies[0].addSheet.properties.sheetId;
-  tabIdCache.set(tabName, sheetId);
+  tabIdCache.set(cacheKey, sheetId);
 
   const lastCol = colLetter(headers.length - 1);
   await sheetsFetch(
@@ -184,12 +186,13 @@ async function getKeyColumn(config: SheetsConfig, tabName: string): Promise<stri
  * Appends a new row if no match is found.
  */
 export async function upsertRow(
+  spreadsheetId: string,
   tabName: string,
   headers: string[],
   key: string,
   rowValues: unknown[]
 ): Promise<void> {
-  const config = getConfig();
+  const config = getConfig(spreadsheetId);
   if (!config) return;
 
   await ensureTab(config, tabName, headers);
@@ -216,12 +219,13 @@ export async function upsertRow(
 
 /** Appends one or more rows unconditionally (for append-only logs). */
 export async function appendRows(
+  spreadsheetId: string,
   tabName: string,
   headers: string[],
   rows: unknown[][]
 ): Promise<void> {
   if (rows.length === 0) return;
-  const config = getConfig();
+  const config = getConfig(spreadsheetId);
   if (!config) return;
 
   await ensureTab(config, tabName, headers);
@@ -240,12 +244,13 @@ export async function appendRows(
  * whole set for a parent record is replaced on every save.
  */
 export async function replaceChildRows(
+  spreadsheetId: string,
   tabName: string,
   headers: string[],
   key: string,
   rows: unknown[][]
 ): Promise<void> {
-  const config = getConfig();
+  const config = getConfig(spreadsheetId);
   if (!config) return;
 
   const sheetId = await ensureTab(config, tabName, headers);
@@ -275,7 +280,7 @@ export async function replaceChildRows(
   }
 
   if (rows.length > 0) {
-    await appendRows(tabName, headers, rows);
+    await appendRows(spreadsheetId, tabName, headers, rows);
   }
 }
 

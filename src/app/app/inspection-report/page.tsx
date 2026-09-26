@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { DataTable, type Column } from '@/components/shared/data-table';
 import { ExportButton } from '@/components/shared/export-button';
+import { useSession } from '@/hooks/use-session';
 import { Plus } from 'lucide-react';
 import { formatDateIST } from '@/lib/datetime';
 import type { InspectionReportWithLookups } from '@/types/db';
@@ -62,6 +63,7 @@ const columns: Column<InspectionReportWithLookups>[] = [
 
 export default function InspectionReportListPage() {
   const router = useRouter();
+  const { user } = useSession();
 
   return (
     <div className="space-y-6">
@@ -74,10 +76,12 @@ export default function InspectionReportListPage() {
         <div className="flex flex-wrap items-center gap-2">
           <ExportButton exportUrl="/api/inspection-reports/export" label="Export" />
 
-          <Button className="w-full sm:w-auto shrink-0" onClick={() => router.push('/app/inspection-report/new')}>
-            <Plus className="mr-2 h-4 w-4" />
-            New Inspection Report
-          </Button>
+          {!user?.ReadOnly && (
+            <Button className="w-full sm:w-auto shrink-0" onClick={() => router.push('/app/inspection-report/new')}>
+              <Plus className="mr-2 h-4 w-4" />
+              New Inspection Report
+            </Button>
+          )}
         </div>
       </div>
 

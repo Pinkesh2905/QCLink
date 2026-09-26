@@ -497,7 +497,7 @@ export function IRForm({ initialData, isEdit = false }: IRFormProps) {
           <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => router.push('/app/inspection-report')}>
             Cancel
           </Button>
-          <Button type="submit" className="w-full sm:w-auto" disabled={loading}>
+          <Button type="submit" className="w-full sm:w-auto" disabled={loading || !!user?.ReadOnly}>
             {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
             {isEdit ? 'Save Changes' : 'Submit Inspection Report'}
           </Button>

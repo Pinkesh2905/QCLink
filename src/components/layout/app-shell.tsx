@@ -4,15 +4,10 @@ import { useState, useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 import { Sidebar } from './sidebar';
 import { Header } from './header';
+import { SubscriptionBanner } from './subscription-banner';
 
 interface AppShellProps {
   children: React.ReactNode;
-  user: {
-    UserID: number;
-    Name: string;
-    Email: string;
-    Role: 'Admin' | 'User';
-  };
 }
 
 export function AppShell({ children }: AppShellProps) {
@@ -60,6 +55,7 @@ export function AppShell({ children }: AppShellProps) {
         <Header
           onToggleMobileNav={() => setMobileOpen((prev) => !prev)}
         />
+        <SubscriptionBanner />
         <main className="relative z-10 flex-1 w-full max-w-full min-w-0 p-3.5 sm:p-6 md:p-8 overflow-x-hidden">
           {children}
         </main>

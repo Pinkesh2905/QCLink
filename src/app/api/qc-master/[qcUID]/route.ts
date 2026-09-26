@@ -4,9 +4,12 @@
 // ============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
-import { withAuth } from '@/lib/middleware';
+import { withAuth, withWriteAuth } from '@/lib/middleware';
 import { query, withTransaction } from '@/lib/db';
 import { diffFields, writeAuditDiffs, writeAuditLog } from '@/lib/audit';
+import { assertLookupIdsVisible } from '@/lib/lookups';
+import { requireCompanyId } from '@/lib/tenant';
+import { assertOwnFileKey } from '@/lib/upload';
 import { syncQCMasterToSheet, appendAuditLogToSheet, type SheetAuditEntry } from '@/lib/sheets-sync';
 import { enforceFieldPermissions } from '@/lib/field-permissions';
 import { updateQCMasterSchema, computeSpecification } from '@/validators/qc-master';
@@ -24,16 +27,18 @@ import type {
 // ---------------------------------------------------------------------------
 export const GET = withAuth(async (_req: NextRequest, ctx) => {
   try {
+    const companyId = requireCompanyId(ctx.user);
     const params = await ctx.params;
     const qcUID = params.qcUID;
 
     const headers = await query<QCMasterWithLookups>(
       `SELECT q.*, usr.Name AS OwnerName,
-              (SELECT COUNT(*) FROM QCSpecifications s WHERE s.QCUID = q.QCUID) AS SpecCount
+              (SELECT COUNT(*) FROM QCSpecifications s
+               WHERE s.CompanyID = q.CompanyID AND s.QCUID = q.QCUID) AS SpecCount
        FROM QCMaster q
        LEFT JOIN Users usr ON q.OwnerUserID = usr.UserID
-       WHERE q.QCUID = ?`,
-      [qcUID]
+       WHERE q.CompanyID = ? AND q.QCUID = ?`,
+      [companyId, qcUID]
     );
 
     if (headers.length === 0) {
@@ -53,9 +58,9 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
        LEFT JOIN InspectionFrequency f ON s.FrequencyID = f.FrequencyID
        LEFT JOIN Responsibility r ON s.ResponsibilityID = r.ResponsibilityID
        LEFT JOIN ReactionPlan rp ON s.ReactionPlanID = rp.ReactionPlanID
-       WHERE s.QCUID = ?
+       WHERE s.CompanyID = ? AND s.QCUID = ?
        ORDER BY s.SrNo ASC`,
-      [qcUID]
+      [companyId, qcUID]
     );
 
     return NextResponse.json({
@@ -70,8 +75,9 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
 // ---------------------------------------------------------------------------
 // PUT — Update QC Master
 // ---------------------------------------------------------------------------
-export const PUT = withAuth(async (req: NextRequest, ctx) => {
+export const PUT = withWriteAuth(async (req: NextRequest, ctx) => {
   try {
+    const companyId = requireCompanyId(ctx.user);
     const params = await ctx.params;
     const qcUID = params.qcUID;
 
@@ -85,8 +91,8 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
     const data = parsed.data;
 
     const [currentQC] = await query<QCMaster>(
-      'SELECT * FROM QCMaster WHERE QCUID = ?',
-      [qcUID]
+      'SELECT * FROM QCMaster WHERE CompanyID = ? AND QCUID = ?',
+      [companyId, qcUID]
     );
 
     if (!currentQC) {
@@ -107,6 +113,7 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
     const newHeaderRow: Record<string, unknown> = { ...currentQC };
 
     if ('ImagePath' in data) {
+      assertOwnFileKey(data.ImagePath, companyId, currentQC.ImagePath);
       newHeaderRow.ImagePath = data.ImagePath ?? null;
     }
 
@@ -124,9 +131,17 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
     // 2. Specifications Diff & Permission Check
     let specsChanged = false;
     if (data.Specifications) {
+      await assertLookupIdsVisible(companyId, [
+        { slug: 'specification-criteria', ids: data.Specifications.map((s) => s.CriteriaID) },
+        { slug: 'method-of-inspection', ids: data.Specifications.map((s) => s.MethodID) },
+        { slug: 'inspection-frequency', ids: data.Specifications.map((s) => s.FrequencyID) },
+        { slug: 'responsibility', ids: data.Specifications.map((s) => s.ResponsibilityID) },
+        { slug: 'reaction-plan', ids: data.Specifications.map((s) => s.ReactionPlanID) },
+      ]);
+
       const existingSpecs = await query<QCSpecification>(
-        'SELECT * FROM QCSpecifications WHERE QCUID = ? ORDER BY SrNo ASC',
-        [qcUID]
+        'SELECT * FROM QCSpecifications WHERE CompanyID = ? AND QCUID = ? ORDER BY SrNo ASC',
+        [companyId, qcUID]
       );
 
       const specFields = [
@@ -185,16 +200,19 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
       // 1. Apply header updates if any
       if (headerDiffs.length > 0) {
         await conn.execute(
-          'UPDATE QCMaster SET ImagePath = ?, UpdatedAt = NOW() WHERE QCUID = ?',
-          [newHeaderRow.ImagePath, qcUID] as any
+          'UPDATE QCMaster SET ImagePath = ?, UpdatedAt = NOW() WHERE CompanyID = ? AND QCUID = ?',
+          [newHeaderRow.ImagePath, companyId, qcUID] as any
         );
-        await writeAuditDiffs(conn, 'QCMaster', qcUID, headerDiffs, ctx.user.userId);
+        await writeAuditDiffs(conn, companyId, 'QCMaster', qcUID, headerDiffs, ctx.user.userId);
       }
 
       // 2. Specifications update if provided
       if (data.Specifications && specsChanged) {
         // Delete existing specifications and re-insert
-        await conn.execute('DELETE FROM QCSpecifications WHERE QCUID = ?', [qcUID]);
+        await conn.execute(
+          'DELETE FROM QCSpecifications WHERE CompanyID = ? AND QCUID = ?',
+          [companyId, qcUID]
+        );
 
         for (let i = 0; i < data.Specifications.length; i++) {
           const spec = data.Specifications[i];
@@ -209,11 +227,12 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
 
           await conn.execute(
             `INSERT INTO QCSpecifications (
-              QCUID, SrNo, Parameter, CriteriaID, MinVal, MaxVal, OtherValue,
+              CompanyID, QCUID, SrNo, Parameter, CriteriaID, MinVal, MaxVal, OtherValue,
               MethodID, FrequencyID, ResponsibilityID, ReactionPlanID,
               Specification, CreatedAt, UpdatedAt
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
             [
+              companyId,
               qcUID,
               srNo,
               spec.Parameter,
@@ -233,6 +252,7 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
         // Record audit entry for specs update
         await writeAuditLog(conn, [
           {
+            companyId,
             tableName: 'QCSpecifications',
             recordId: qcUID,
             actionType: 'UPDATE',
@@ -245,7 +265,7 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
       }
     });
 
-    await syncQCMasterToSheet(qcUID);
+    await syncQCMasterToSheet(companyId, qcUID);
 
     const sheetAuditEntries: SheetAuditEntry[] = headerDiffs.map((d) => ({
       tableName: 'QCMaster',
@@ -269,7 +289,7 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
       });
     }
 
-    await appendAuditLogToSheet(sheetAuditEntries);
+    await appendAuditLogToSheet(companyId, sheetAuditEntries);
 
     return NextResponse.json({ message: 'QC Master updated successfully' });
   } catch (error) {

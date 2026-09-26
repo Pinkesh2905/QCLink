@@ -76,6 +76,7 @@ export interface User {
   Email: string;
   PasswordHash: string;
   Role: UserRole;
+  CompanyID: number | null;
   Status: UserStatus;
   CreatedAt: Date;
   UpdatedAt: Date;
@@ -103,10 +104,54 @@ export interface PasswordResetToken {
 }
 
 // ---------------------------------------------------------------------------
-// Core Module Tables
+// Tenancy & Subscriptions
+// ---------------------------------------------------------------------------
+
+export interface Company {
+  CompanyID: number;
+  CompanyName: string;
+  ContactName: string | null;
+  ContactEmail: string | null;
+  ContactPhone: string | null;
+  Address: string | null;
+  GoogleSheetID: string | null;
+  IsActive: number;
+  CreatedAt: Date;
+  UpdatedAt: Date;
+}
+
+export interface Subscription {
+  SubscriptionID: number;
+  CompanyID: number;
+  AppCode: string;
+  PlanCode: string;
+  StartDate: string; // YYYY-MM-DD
+  EndDate: string; // YYYY-MM-DD, inclusive
+  Source: 'Admin' | 'Payment';
+  CreatedByUserID: number;
+  CreatedAt: Date;
+}
+
+export interface SubscriptionPayment {
+  PaymentID: number;
+  SubscriptionID: number;
+  CompanyID: number;
+  AppCode: string;
+  Amount: number;
+  Currency: string;
+  Gateway: string;
+  GatewayReference: string;
+  Status: 'Success' | 'Failed';
+  PaidByUserID: number;
+  PaidAt: Date;
+}
+
+// ---------------------------------------------------------------------------
+// Core Module Tables (every row belongs to one company; UIDs repeat per company)
 // ---------------------------------------------------------------------------
 
 export interface Item {
+  CompanyID: number;
   ItemUID: string;       // e.g. "Item01"
   ItemName: string;
   CategoryID: number;
@@ -124,6 +169,7 @@ export interface Item {
 }
 
 export interface QCMaster {
+  CompanyID: number;
   QCUID: string;        // e.g. "QC01"
   ItemUID: string;
   ItemName: string;      // denormalized
@@ -136,6 +182,7 @@ export interface QCMaster {
 
 export interface QCSpecification {
   SpecID: number;
+  CompanyID: number;
   QCUID: string;
   SrNo: number;          // 1–30
   Parameter: string;
@@ -153,6 +200,7 @@ export interface QCSpecification {
 }
 
 export interface InspectionReport {
+  CompanyID: number;
   IIRUID: string;        // e.g. "IIR01"
   InspectionDate: Date;
   ItemUID: string;
@@ -169,6 +217,7 @@ export interface InspectionReport {
 
 export interface InspectionResult {
   ResultID: number;
+  CompanyID: number;
   IIRUID: string;
   SrNo: number;
   Parameter: string;
@@ -203,6 +252,7 @@ export interface AuditLog {
   AuditID: number;
   TableName: string;
   RecordID: string;
+  CompanyID: number | null;
   ActionType: AuditActionType;
   FieldName: string | null;
   OldValue: string | null;
@@ -266,4 +316,14 @@ export interface InspectionResultWithLookups extends InspectionResult {
 
 export interface AuditLogWithUser extends AuditLog {
   ChangedByName: string;
+  CompanyName?: string | null;
+}
+
+export interface CompanyWithStats extends Company {
+  UserCount: number;
+  PlanEndDate: string | null;
+}
+
+export interface UserWithCompany extends SafeUser {
+  CompanyName: string | null;
 }

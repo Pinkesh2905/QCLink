@@ -69,10 +69,12 @@ export default function StoreMasterListPage() {
             </Button>
           )}
 
-          <Button className="w-full sm:w-auto shrink-0" onClick={() => router.push('/app/store-master/new')}>
-            <Plus className="mr-2 h-4 w-4" />
-            New Item
-          </Button>
+          {!user?.ReadOnly && (
+            <Button className="w-full sm:w-auto shrink-0" onClick={() => router.push('/app/store-master/new')}>
+              <Plus className="mr-2 h-4 w-4" />
+              New Item
+            </Button>
+          )}
         </div>
       </div>
 

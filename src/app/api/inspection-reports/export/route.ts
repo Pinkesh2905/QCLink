@@ -9,16 +9,18 @@ import { withAuth } from '@/lib/middleware';
 import { query } from '@/lib/db';
 import { generateCSV } from '@/lib/csv';
 import { formatISTForExport } from '@/lib/datetime';
+import { requireCompanyId } from '@/lib/tenant';
 import { errorResponse } from '@/lib/errors';
 
-export const GET = withAuth(async (req: NextRequest) => {
+export const GET = withAuth(async (req: NextRequest, ctx) => {
   try {
+    const companyId = requireCompanyId(ctx.user);
     const url = req.nextUrl;
     const search = url.searchParams.get('search') || '';
     const exportAll = url.searchParams.get('exportAll') === 'true';
 
-    const conditions: string[] = [];
-    const params: unknown[] = [];
+    const conditions: string[] = ['r.CompanyID = ?'];
+    const params: unknown[] = [companyId];
 
     if (search && !exportAll) {
       conditions.push('(r.ItemName LIKE ? OR r.IIRUID LIKE ? OR r.GRNNo LIKE ?)');
@@ -26,7 +28,7 @@ export const GET = withAuth(async (req: NextRequest) => {
       params.push(pattern, pattern, pattern);
     }
 
-    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const whereClause = `WHERE ${conditions.join(' AND ')}`;
 
     const rows = await query<{
       IIRUID: string;
@@ -81,7 +83,7 @@ export const GET = withAuth(async (req: NextRequest) => {
          r.UpdatedAt
        FROM InspectionReports r
        LEFT JOIN ResultStatus rsHeader ON r.InspectionStatusID = rsHeader.ResultStatusID
-       LEFT JOIN InspectionResults res ON r.IIRUID = res.IIRUID
+       LEFT JOIN InspectionResults res ON res.CompanyID = r.CompanyID AND res.IIRUID = r.IIRUID
        LEFT JOIN SpecificationCriteria c ON res.CriteriaID = c.CriteriaID
        LEFT JOIN MethodOfInspection m ON res.MethodID = m.MethodID
        LEFT JOIN InspectionFrequency f ON res.FrequencyID = f.FrequencyID

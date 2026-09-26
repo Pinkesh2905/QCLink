@@ -5,12 +5,23 @@
 
 import type { PoolConnection } from 'mysql2/promise';
 import type { AuditActionType } from '@/types/db';
-import { query } from './db';
 
-interface FieldDiff {
+export interface FieldDiff {
   field: string;
   oldValue: string | null;
   newValue: string | null;
+}
+
+export interface AuditEntry {
+  /** Owning company; null for platform-level records (users, shared options). */
+  companyId: number | null;
+  tableName: string;
+  recordId: string;
+  actionType: AuditActionType;
+  fieldName: string | null;
+  oldValue: string | null;
+  newValue: string | null;
+  changedByUserID: number;
 }
 
 /**
@@ -49,15 +60,7 @@ export function diffFields(
  */
 export async function writeAuditLog(
   conn: PoolConnection,
-  entries: {
-    tableName: string;
-    recordId: string;
-    actionType: AuditActionType;
-    fieldName: string | null;
-    oldValue: string | null;
-    newValue: string | null;
-    changedByUserID: number;
-  }[]
+  entries: AuditEntry[]
 ): Promise<void> {
   if (entries.length === 0) return;
 
@@ -65,10 +68,11 @@ export async function writeAuditLog(
   const placeholders: string[] = [];
 
   for (const entry of entries) {
-    placeholders.push('(?, ?, ?, ?, ?, ?, ?, NOW())');
+    placeholders.push('(?, ?, ?, ?, ?, ?, ?, ?, NOW())');
     values.push(
       entry.tableName,
       entry.recordId,
+      entry.companyId,
       entry.actionType,
       entry.fieldName,
       entry.oldValue,
@@ -78,7 +82,7 @@ export async function writeAuditLog(
   }
 
   await conn.execute(
-    `INSERT INTO AuditLog (TableName, RecordID, ActionType, FieldName, OldValue, NewValue, ChangedByUserID, ChangedAt)
+    `INSERT INTO AuditLog (TableName, RecordID, CompanyID, ActionType, FieldName, OldValue, NewValue, ChangedByUserID, ChangedAt)
      VALUES ${placeholders.join(', ')}`,
     values as any
   );
@@ -89,6 +93,7 @@ export async function writeAuditLog(
  */
 export async function writeAuditDiffs(
   conn: PoolConnection,
+  companyId: number | null,
   tableName: string,
   recordId: string,
   diffs: FieldDiff[],
@@ -99,6 +104,7 @@ export async function writeAuditDiffs(
   await writeAuditLog(
     conn,
     diffs.map((d) => ({
+      companyId,
       tableName,
       recordId,
       actionType: 'UPDATE' as AuditActionType,
@@ -115,12 +121,14 @@ export async function writeAuditDiffs(
  */
 export async function writeCreateAudit(
   conn: PoolConnection,
+  companyId: number | null,
   tableName: string,
   recordId: string,
   changedByUserID: number
 ): Promise<void> {
   await writeAuditLog(conn, [
     {
+      companyId,
       tableName,
       recordId,
       actionType: 'CREATE',
@@ -130,43 +138,4 @@ export async function writeCreateAudit(
       changedByUserID,
     },
   ]);
-}
-
-/**
- * Fetch audit log entries for a specific record, with user names.
- * Used by the History modal.
- */
-export async function getAuditHistory(
-  tableName: string | string[],
-  recordId: string,
-  page: number = 1,
-  pageSize: number = 50
-) {
-  const tables = Array.isArray(tableName) ? tableName : [tableName];
-  const placeholders = tables.map(() => '?').join(', ');
-  const offset = (page - 1) * pageSize;
-
-  const rows = await query(
-    `SELECT a.*, u.Name AS ChangedByName
-     FROM AuditLog a
-     LEFT JOIN Users u ON a.ChangedByUserID = u.UserID
-     WHERE a.TableName IN (${placeholders}) AND a.RecordID = ?
-     ORDER BY a.ChangedAt DESC
-     LIMIT ? OFFSET ?`,
-    [...tables, recordId, pageSize, offset]
-  );
-
-  const [countRow] = await query<{ total: number }>(
-    `SELECT COUNT(*) as total FROM AuditLog
-     WHERE TableName IN (${placeholders}) AND RecordID = ?`,
-    [...tables, recordId]
-  );
-
-  return {
-    data: rows,
-    total: countRow.total,
-    page,
-    pageSize,
-    totalPages: Math.ceil(countRow.total / pageSize),
-  };
 }

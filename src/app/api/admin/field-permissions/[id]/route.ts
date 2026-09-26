@@ -45,6 +45,7 @@ export const PUT = withAdmin<{ id: string }>(async (req: NextRequest, ctx) => {
 
         await writeAuditLog(conn, [
           {
+            companyId: null,
             tableName: 'FieldPermissions',
             recordId: String(permissionId),
             actionType: 'UPDATE',

@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/middleware';
 import { query } from '@/lib/db';
+import { requireCompanyId } from '@/lib/tenant';
 import { errorResponse, AppError } from '@/lib/errors';
 
 // Tables whose per-record history a regular User is allowed to view (matches
@@ -25,11 +26,14 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     const tableName = url.searchParams.get('tableName');
     const recordId = url.searchParams.get('recordId');
     const userId = url.searchParams.get('userId');
+    const companyFilter = url.searchParams.get('companyId');
+    const allCompanies = url.searchParams.get('allCompanies') === 'true';
     const startDate = url.searchParams.get('startDate');
     const endDate = url.searchParams.get('endDate');
 
+    const tables = tableName ? tableName.split(',').map((t) => t.trim()) : [];
+
     if (ctx.user.role !== 'Admin') {
-      const tables = tableName ? tableName.split(',').map((t) => t.trim()) : [];
       const scopedToOwnRecord =
         !!recordId && tables.length > 0 && tables.every((t) => USER_VISIBLE_TABLES.has(t));
 
@@ -41,9 +45,19 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     const conditions: string[] = [];
     const params: unknown[] = [];
 
-    if (tableName) {
-      // Support comma-separated table names for child rows (e.g. "QCMaster,QCSpecifications")
-      const tables = tableName.split(',').map(t => t.trim());
+    // "Item01" exists once per company, so a record's history (the History
+    // modal) defaults to the caller's own company. Only the admin audit page
+    // can pick another company, or explicitly ask for all of them.
+    const isAdmin = ctx.user.role === 'Admin';
+    if (isAdmin && companyFilter) {
+      conditions.push('a.CompanyID = ?');
+      params.push(parseInt(companyFilter, 10));
+    } else if (recordId && !(isAdmin && allCompanies)) {
+      conditions.push('a.CompanyID = ?');
+      params.push(requireCompanyId(ctx.user));
+    }
+
+    if (tables.length > 0) {
       conditions.push(`a.TableName IN (${tables.map(() => '?').join(', ')})`);
       params.push(...tables);
     }
@@ -71,9 +85,10 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     const offset = (page - 1) * pageSize;
 
     const rows = await query(
-      `SELECT a.*, u.Name AS ChangedByName
+      `SELECT a.*, u.Name AS ChangedByName, c.CompanyName
        FROM AuditLog a
        LEFT JOIN Users u ON a.ChangedByUserID = u.UserID
+       LEFT JOIN Companies c ON a.CompanyID = c.CompanyID
        ${whereClause}
        ORDER BY a.ChangedAt DESC
        LIMIT ? OFFSET ?`,

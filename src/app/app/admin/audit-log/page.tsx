@@ -41,7 +41,11 @@ const TABLES = [
   { label: 'Responsibility', value: 'Responsibility' },
   { label: 'ReactionPlan', value: 'ReactionPlan' },
   { label: 'ResultStatus', value: 'ResultStatus' },
+  { label: 'Companies', value: 'Companies' },
+  { label: 'Subscriptions', value: 'Subscriptions' },
 ];
+
+const ALL_COMPANIES = 'all';
 
 export default function AuditLogViewerPage() {
   const [logs, setLogs] = useState<AuditLogWithUser[]>([]);
@@ -49,8 +53,10 @@ export default function AuditLogViewerPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
+  const [companies, setCompanies] = useState<{ CompanyID: number; CompanyName: string }[]>([]);
 
   // Filters
+  const [selectedCompany, setSelectedCompany] = useState(ALL_COMPANIES);
   const [selectedTable, setSelectedTable] = useState('');
   const [recordIdFilter, setRecordIdFilter] = useState('');
   const [startDate, setStartDate] = useState('');
@@ -64,6 +70,8 @@ export default function AuditLogViewerPage() {
       const params = new URLSearchParams();
       params.set('page', String(page));
       params.set('pageSize', String(pageSize));
+      if (selectedCompany === ALL_COMPANIES) params.set('allCompanies', 'true');
+      else params.set('companyId', selectedCompany);
       if (selectedTable) params.set('tableName', selectedTable);
       if (recordIdFilter.trim()) params.set('recordId', recordIdFilter.trim());
       if (startDate) params.set('startDate', startDate);
@@ -81,13 +89,21 @@ export default function AuditLogViewerPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, selectedTable, recordIdFilter, startDate, endDate]);
+  }, [page, selectedCompany, selectedTable, recordIdFilter, startDate, endDate]);
 
   useEffect(() => {
     fetchLogs();
   }, [fetchLogs]);
 
+  useEffect(() => {
+    fetch('/api/admin/companies')
+      .then((res) => (res.ok ? res.json() : []))
+      .then(setCompanies)
+      .catch(() => {});
+  }, []);
+
   const handleResetFilters = () => {
+    setSelectedCompany(ALL_COMPANIES);
     setSelectedTable('');
     setRecordIdFilter('');
     setStartDate('');
@@ -137,7 +153,31 @@ export default function AuditLogViewerPage() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            {/* Company */}
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Company</label>
+              <Select
+                value={selectedCompany}
+                onValueChange={(val) => {
+                  setSelectedCompany(val);
+                  setPage(1);
+                }}
+              >
+                <SelectTrigger className="h-9 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_COMPANIES} className="text-xs">All companies</SelectItem>
+                  {companies.map((c) => (
+                    <SelectItem key={c.CompanyID} value={String(c.CompanyID)} className="text-xs">
+                      {c.CompanyName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
             {/* Table */}
             <div className="space-y-1">
               <label className="text-xs font-medium text-muted-foreground">Module / Table</label>
@@ -221,6 +261,7 @@ export default function AuditLogViewerPage() {
               <TableRow>
                 <TableHead className="w-40">Timestamp</TableHead>
                 <TableHead className="w-24">Action</TableHead>
+                <TableHead className="w-36">Company</TableHead>
                 <TableHead className="w-36">Table</TableHead>
                 <TableHead className="w-28 font-mono">Record ID</TableHead>
                 <TableHead className="w-36">Field</TableHead>
@@ -232,13 +273,13 @@ export default function AuditLogViewerPage() {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="h-32 text-center">
+                  <TableCell colSpan={9} className="h-32 text-center">
                     <Loader2 className="mx-auto h-6 w-6 animate-spin text-muted-foreground" />
                   </TableCell>
                 </TableRow>
               ) : logs.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="h-32 text-center text-muted-foreground">
+                  <TableCell colSpan={9} className="h-32 text-center text-muted-foreground">
                     No audit records matching the selected filters
                   </TableCell>
                 </TableRow>
@@ -249,6 +290,9 @@ export default function AuditLogViewerPage() {
                       {formatDateTimeIST(log.ChangedAt, { second: '2-digit' })}
                     </TableCell>
                     <TableCell>{getActionBadge(log.ActionType)}</TableCell>
+                    <TableCell className="text-muted-foreground truncate max-w-[9rem]">
+                      {log.CompanyName || '—'}
+                    </TableCell>
                     <TableCell className="font-medium text-foreground">
                       {log.TableName}
                     </TableCell>
@@ -297,6 +341,9 @@ export default function AuditLogViewerPage() {
                 <div className="flex items-baseline gap-1.5">
                   <span className="font-medium text-foreground">{log.TableName}</span>
                   <span className="font-mono text-muted-foreground">{log.RecordID}</span>
+                  {log.CompanyName && (
+                    <span className="ml-auto text-muted-foreground truncate">{log.CompanyName}</span>
+                  )}
                 </div>
 
                 {log.FieldName && (

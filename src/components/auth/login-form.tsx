@@ -176,15 +176,8 @@ export function LoginForm() {
         </Button>
       </form>
 
-      {/* Footer Navigation */}
       <p className="mt-5 text-center text-xs sm:text-sm text-slate-500">
-        Don&apos;t have an account?{' '}
-        <Link
-          href="/signup"
-          className="font-semibold text-teal-700 hover:text-teal-800 hover:underline transition-colors"
-        >
-          Create an account
-        </Link>
+        Need an account? Contact your Vezapp administrator.
       </p>
     </div>
   );

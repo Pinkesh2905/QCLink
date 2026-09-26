@@ -5,8 +5,6 @@
 
 import nodemailer from 'nodemailer';
 import { Resend } from 'resend';
-import { query } from './db';
-import type { User } from '@/types/db';
 
 let resendInstance: Resend | null = null;
 let smtpTransporter: nodemailer.Transporter | null = null;
@@ -155,56 +153,52 @@ function emailLayout(title: string, contentHtml: string): string {
 </html>`;
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 /**
- * 1. Notify all Admins when a new user registers and awaits approval.
+ * 1. Tell a user an admin created their account. The password is shared by
+ *    the admin out of band — never emailed — and "Forgot password" lets the
+ *    user set their own.
  */
-export async function sendSignupNotificationToAdmins(
+export async function sendAccountCreatedEmail(
+  userEmail: string,
   userName: string,
-  userEmail: string
+  companyName: string
 ): Promise<void> {
   try {
-    // Look up active admins
-    const admins = await query<Pick<User, 'Email'>>(
-      "SELECT Email FROM Users WHERE Role = 'Admin' AND Status = 'Active'"
-    );
-
-    const adminEmails = admins
-      .map((a) => a.Email)
-      .filter((e) => e && e.includes('@') && !e.endsWith('@localhost'));
-
-    if (adminEmails.length === 0) {
-      console.warn('[QCLink Email] No active admin emails found with valid addresses to notify.');
-      return;
-    }
-
-    const approvalsUrl = `${getAppUrl()}/app/admin/approvals`;
+    const loginUrl = `${getAppUrl()}/login`;
+    const forgotUrl = `${getAppUrl()}/forgot-password`;
 
     const html = emailLayout(
-      'New User Registration Awaiting Approval',
+      'Your QCLink Account',
       `
-      <h2>New User Registration</h2>
-      <p>A new user has registered on QCLink and is awaiting administrative approval:</p>
-      <ul style="padding-left: 20px; margin: 16px 0;">
-        <li><strong>Name:</strong> ${userName}</li>
-        <li><strong>Email:</strong> ${userEmail}</li>
-      </ul>
-      <p>Please review and approve or reject this request in the Admin Panel:</p>
+      <h2>Welcome to QCLink</h2>
+      <p>Hello ${escapeHtml(userName)},</p>
+      <p>A QCLink account has been created for you under <strong>${escapeHtml(companyName)}</strong>.</p>
+      <p>Sign in with this email address and the password your administrator shared with you, or set your own password using <a href="${forgotUrl}">Forgot password</a>.</p>
       <p style="text-align: center;">
-        <a href="${approvalsUrl}" class="button">Review User Approvals</a>
+        <a href="${loginUrl}" class="button">Log In to QCLink</a>
       </p>
       `
     );
 
-    const textSummary = `New user registered and awaiting approval:\nName: ${userName}\nEmail: ${userEmail}\nReview Approvals: ${approvalsUrl}`;
+    const textSummary = `Hello ${userName},\nA QCLink account has been created for you under ${companyName}. Log in at ${loginUrl}, or set your own password at ${forgotUrl}.`;
 
     await dispatchEmail({
-      to: adminEmails,
-      subject: `[QCLink] New User Awaiting Approval: ${userName}`,
+      to: userEmail,
+      subject: 'Your QCLink account is ready',
       html,
       textSummary,
     });
   } catch (error) {
-    console.error('Failed to send admin signup notification email:', error);
+    console.error(`Failed to send account-created email to ${userEmail}:`, error);
   }
 }
 
