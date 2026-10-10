@@ -161,6 +161,7 @@ export function SpecRow({
               <label className="text-xs font-medium">Min Value</label>
               <NumberInput
  value={row.MinVal}
+ maxDecimals={4}
  onValueChange={(v) => onChange({ ...row, MinVal: v })}
                 placeholder="e.g. 5.0"
                 disabled={checkDisabled('MinVal')}
@@ -174,6 +175,7 @@ export function SpecRow({
               <label className="text-xs font-medium">Max Value</label>
               <NumberInput
  value={row.MaxVal}
+ maxDecimals={4}
  onValueChange={(v) => onChange({ ...row, MaxVal: v })}
                 placeholder="e.g. 10.0"
                 disabled={checkDisabled('MaxVal')}
@@ -188,6 +190,7 @@ export function SpecRow({
                 <label className="text-xs font-medium">Min</label>
                 <NumberInput
  value={row.MinVal}
+ maxDecimals={4}
  onValueChange={(v) => onChange({ ...row, MinVal: v })}
                   placeholder="Min"
                   disabled={checkDisabled('MinVal')}
@@ -198,6 +201,7 @@ export function SpecRow({
                 <label className="text-xs font-medium">Max</label>
                 <NumberInput
  value={row.MaxVal}
+ maxDecimals={4}
  onValueChange={(v) => onChange({ ...row, MaxVal: v })}
                   placeholder="Max"
                   disabled={checkDisabled('MaxVal')}

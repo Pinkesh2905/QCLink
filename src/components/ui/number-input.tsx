@@ -8,6 +8,8 @@ type Props = Omit<React.ComponentProps<"input">, "value" | "onChange" | "type" |
   value: number | null | undefined
   /** Called with the number typed so far, or null while the box is empty or holds only "-" or ".". */
   onValueChange: (value: number | null) => void
+  /** The most decimals the database keeps (DECIMAL(18,4) keeps 4). Further digits are not accepted, so nothing is rounded silently. */
+  maxDecimals?: number
 }
 
 const toText = (value: number | null | undefined) => (value === null || value === undefined ? "" : String(value))
@@ -22,7 +24,7 @@ const toNumber = (text: string): number | null => {
  * upwards. A box that turned every keystroke into a number and back would drop the dot and the zeros of "0.003" as soon as
  * they were typed, because 0. and 0.0 are both just 0.
  */
-export function NumberInput({ value, onValueChange, onBlur, ...props }: Props) {
+export function NumberInput({ value, onValueChange, onBlur, maxDecimals, ...props }: Props) {
   const [text, setText] = React.useState(toText(value))
 
   // A value that changed from outside (a form reset, a loaded record) replaces the text; the number we reported ourselves does not.
@@ -41,6 +43,7 @@ export function NumberInput({ value, onValueChange, onBlur, ...props }: Props) {
       onChange={(e) => {
         const typed = e.target.value.replace(",", ".")
         if (!/^-?\d*\.?\d*$/.test(typed)) return // only digits, one dot and a leading minus
+        if (maxDecimals !== undefined && (typed.split(".")[1]?.length ?? 0) > maxDecimals) return
         setText(typed)
         onValueChange(toNumber(typed))
       }}
