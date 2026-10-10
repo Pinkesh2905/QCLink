@@ -79,27 +79,7 @@ export function SpecGrid({
             {rows.length} / 30 rows
           </span>
         </div>
-
-        {!disabled && (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={handleAddRow}
-            disabled={isMaxReached}
-          >
-            <Plus className="mr-1.5 h-4 w-4" />
-            Add Specification Row
-          </Button>
-        )}
       </div>
-
-      {isMaxReached && (
-        <div className="flex items-center gap-2 rounded-md bg-amber-50 border border-amber-200 p-3 text-xs text-amber-800">
-          <AlertCircle className="h-4 w-4 shrink-0 text-amber-600" />
-          <span>Maximum of 30 specification rows reached.</span>
-        </div>
-      )}
 
       <div className="space-y-3">
         {rows.map((row, idx) => (
@@ -122,6 +102,26 @@ export function SpecGrid({
           />
         ))}
       </div>
+
+      {isMaxReached && (
+        <div className="flex items-center gap-2 rounded-md bg-amber-50 border border-amber-200 p-3 text-xs text-amber-800">
+          <AlertCircle className="h-4 w-4 shrink-0 text-amber-600" />
+          <span>Maximum of 30 specification rows reached.</span>
+        </div>
+      )}
+
+      {!disabled && (
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full border-dashed"
+          onClick={handleAddRow}
+          disabled={isMaxReached}
+        >
+          <Plus className="mr-1.5 h-4 w-4" />
+          Add Specification Row
+        </Button>
+      )}
     </div>
   );
 }
