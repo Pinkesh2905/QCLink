@@ -30,9 +30,17 @@ export const qcSpecInputSchema = z.object({
   ReactionPlanID: idRequired,
 });
 
+/** The name of a QC template. Together with the item it must be unique. */
+export const masterAliasSchema = z
+  .string()
+  .trim()
+  .min(1, 'Master Alias is required')
+  .max(100, 'Master Alias can be at most 100 characters');
+
 export const createQCMasterSchema = z.object({
   ItemUID: z.string().min(1, 'Item selection is required'),
   ItemName: z.string().min(1, 'Item Name is required'),
+  MasterAlias: masterAliasSchema,
   ImagePath: z.string().nullable().optional(),
   Specifications: z
     .array(qcSpecInputSchema)
@@ -41,6 +49,7 @@ export const createQCMasterSchema = z.object({
 });
 
 export const updateQCMasterSchema = z.object({
+  MasterAlias: masterAliasSchema.optional(),
   ImagePath: z.string().nullable().optional(),
   Specifications: z
     .array(qcSpecInputSchema)
@@ -52,6 +61,23 @@ export const updateQCMasterSchema = z.object({
 export type QCSpecInputSchema = z.infer<typeof qcSpecInputSchema>;
 export type CreateQCMasterInput = z.infer<typeof createQCMasterSchema>;
 export type UpdateQCMasterInput = z.infer<typeof updateQCMasterSchema>;
+
+/** Is this criteria one that has both a Min and a Max (a range)? */
+export function isRangeCriteria(criteriaName: string): boolean {
+  const norm = criteriaName.trim().toLowerCase();
+  return norm.includes('range') || norm.includes('min max');
+}
+
+/** A message when a range specification has a Max below its Min, otherwise null. Min equal to Max is allowed. */
+export function rangeError(
+  criteriaName: string,
+  minVal: number | null | undefined,
+  maxVal: number | null | undefined
+): string | null {
+  if (!isRangeCriteria(criteriaName)) return null;
+  if (minVal != null && maxVal != null && maxVal < minVal) return 'Max cannot be less than Min';
+  return null;
+}
 
 /**
  * Server-side helper to compute the Specification string based on CriteriaName and values.

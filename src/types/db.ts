@@ -173,6 +173,8 @@ export interface QCMaster {
   QCUID: string;        // e.g. "QC01"
   ItemUID: string;
   ItemName: string;      // denormalized
+  /** Name that tells this template from other templates of the same item. Null on templates made before it existed. */
+  MasterAlias: string | null;
   ImagePath: string | null;
   SubmissionID: string | null;
   OwnerUserID: number;

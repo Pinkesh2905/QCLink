@@ -23,9 +23,9 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     const params: unknown[] = [companyId];
 
     if (search && !exportAll) {
-      conditions.push('(q.ItemName LIKE ? OR q.QCUID LIKE ? OR q.ItemUID LIKE ?)');
+      conditions.push('(q.ItemName LIKE ? OR q.QCUID LIKE ? OR q.ItemUID LIKE ? OR q.MasterAlias LIKE ?)');
       const pattern = `%${search}%`;
-      params.push(pattern, pattern, pattern);
+      params.push(pattern, pattern, pattern, pattern);
     }
 
     const whereClause = `WHERE ${conditions.join(' AND ')}`;
@@ -34,6 +34,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
       QCUID: string;
       ItemUID: string;
       ItemName: string;
+      MasterAlias: string | null;
       SrNo: number | null;
       Parameter: string | null;
       CriteriaName: string | null;
@@ -53,6 +54,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
          q.QCUID,
          q.ItemUID,
          q.ItemName,
+         q.MasterAlias,
          s.SrNo,
          s.Parameter,
          c.CriteriaName,
@@ -84,6 +86,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
       'QCUID',
       'ItemUID',
       'ItemName',
+      'MasterAlias',
       'SrNo',
       'Parameter',
       'Criteria',
@@ -104,6 +107,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
       QCUID: r.QCUID,
       ItemUID: r.ItemUID,
       ItemName: r.ItemName,
+      MasterAlias: r.MasterAlias || '',
       SrNo: r.SrNo != null ? r.SrNo : '',
       Parameter: r.Parameter || '',
       Criteria: r.CriteriaName || '',

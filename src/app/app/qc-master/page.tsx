@@ -13,6 +13,12 @@ const columns: Column<QCMasterWithLookups>[] = [
   { key: 'QCUID', header: 'QC UID', sortable: true, className: 'font-medium w-28' },
   { key: 'ItemName', header: 'Item Name', sortable: true },
   {
+    key: 'MasterAlias',
+    header: 'Master Alias',
+    sortable: true,
+    render: (row) => row.MasterAlias || <span className="text-muted-foreground">—</span>,
+  },
+  {
     key: 'SpecCount',
     header: 'Specs',
     sortable: true,

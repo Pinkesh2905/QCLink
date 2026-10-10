@@ -14,7 +14,7 @@ import { SpecGrid } from './spec-grid';
 import { useLookup } from '@/hooks/use-lookup';
 import { useSession } from '@/hooks/use-session';
 import { useFieldPermissions } from '@/hooks/use-field-permissions';
-import { createQCMasterSchema, updateQCMasterSchema, type QCSpecInputSchema } from '@/validators/qc-master';
+import { createQCMasterSchema, updateQCMasterSchema, rangeError, type QCSpecInputSchema } from '@/validators/qc-master';
 import { Loader2, History, ArrowLeft, Save, Printer } from 'lucide-react';
 import { formatDateTimeIST } from '@/lib/datetime';
 import type { QCMasterDetailResponse } from '@/types/api';
@@ -74,6 +74,8 @@ export function QCForm({ initialData, isEdit = false }: QCFormProps) {
 
   const [itemUID, setItemUID] = useState(initialData?.ItemUID || '');
   const [itemName, setItemName] = useState(initialData?.ItemName || '');
+  const [masterAlias, setMasterAlias] = useState(initialData?.MasterAlias || '');
+  const [aliasError, setAliasError] = useState<string | null>(null);
   const [imagePath, setImagePath] = useState<string | null>(initialData?.ImagePath || null);
   const [specs, setSpecs] = useState<QCSpecInputSchema[]>(initialSpecs);
 
@@ -102,20 +104,53 @@ export function QCForm({ initialData, isEdit = false }: QCFormProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [criteriaList, methods, frequencies, responsibilities, reactionPlans, isEdit]);
 
+  // Tells at once when this item already has a template with this alias (the server checks again when saving)
+  const checkAlias = async () => {
+    const alias = masterAlias.trim();
+    if (!alias || !itemUID) return;
+    try {
+      const res = await fetch(`/api/qc-master?itemUID=${encodeURIComponent(itemUID)}&pageSize=100`);
+      if (!res.ok) return;
+      const json = await res.json();
+      const same = (json.data as { QCUID: string; MasterAlias: string | null }[]).find(
+        (q) => (q.MasterAlias || '').trim().toLowerCase() === alias.toLowerCase() && q.QCUID !== initialData?.QCUID
+      );
+      setAliasError(
+        same ? `"${itemName}" already has a QC Master with the Master Alias "${alias}" (${same.QCUID}). Choose a different Master Alias.` : null
+      );
+    } catch {
+      // the server checks it when saving
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setGeneralError(null);
 
+    // A range whose Max is below its Min cannot be saved
+    for (let i = 0; i < specs.length; i++) {
+      const problem = rangeError(criteriaList.find((c) => c.id === specs[i].CriteriaID)?.name || '', specs[i].MinVal, specs[i].MaxVal);
+      if (problem) {
+        const msg = `Row ${i + 1}: ${problem} (Min ${specs[i].MinVal}, Max ${specs[i].MaxVal}).`;
+        setGeneralError(msg);
+        toast.error(msg);
+        setLoading(false);
+        return;
+      }
+    }
+
     const parsed = (isEdit ? updateQCMasterSchema : createQCMasterSchema).safeParse({
       ItemUID: itemUID,
       ItemName: itemName,
+      MasterAlias: masterAlias,
       ImagePath: imagePath,
       Specifications: specs,
     });
 
     if (!parsed.success) {
       const firstError = parsed.error.issues[0];
+      if (firstError?.path[0] === 'MasterAlias') setAliasError(firstError.message);
       const msg = firstError ? `${firstError.path.join('.')}: ${firstError.message}` : 'Validation failed';
       setGeneralError(msg);
       toast.error(msg);
@@ -137,6 +172,7 @@ export function QCForm({ initialData, isEdit = false }: QCFormProps) {
 
       if (!res.ok) {
         const err = json.error || 'Failed to save QC Master';
+        if (json.field === 'MasterAlias') setAliasError(err);
         setGeneralError(err);
         toast.error(err);
         return;
@@ -255,6 +291,34 @@ export function QCForm({ initialData, isEdit = false }: QCFormProps) {
           <div className="space-y-2">
             <Label>Item UID</Label>
             <Input value={itemUID || '—'} disabled className="bg-muted font-mono" />
+          </div>
+
+          <div className="space-y-2 sm:col-span-3">
+            <Label htmlFor="master-alias">
+              Master Alias <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              id="master-alias"
+              value={masterAlias}
+              onChange={(e) => {
+                setMasterAlias(e.target.value);
+                setAliasError(null);
+              }}
+              onBlur={checkAlias}
+              maxLength={100}
+              placeholder="A unique name for this template, e.g. Supplier A - Standard"
+              aria-invalid={!!aliasError}
+              disabled={isFieldDisabled('QCMaster', 'MasterAlias', isEdit, user?.Role)}
+            />
+            {aliasError ? (
+              <p role="alert" className="text-xs font-medium text-destructive">
+                {aliasError}
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                One item can have several QC templates. Each needs its own alias, and the item with the alias must be new.
+              </p>
+            )}
           </div>
 
           <div className="space-y-2 sm:col-span-3">

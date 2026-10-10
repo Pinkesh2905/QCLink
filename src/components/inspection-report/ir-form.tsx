@@ -423,7 +423,7 @@ export function IRForm({ initialData, isEdit = false }: IRFormProps) {
                 <SelectContent>
                   {availableQCs.map((qc) => (
                     <SelectItem key={qc.QCUID} value={qc.QCUID}>
-                      {qc.QCUID} — {qc.ItemName} ({qc.SpecCount || 0} specs)
+                      {qc.QCUID} — {qc.ItemName}{qc.MasterAlias ? ` · ${qc.MasterAlias}` : ''} ({qc.SpecCount || 0} specs)
                     </SelectItem>
                   ))}
                 </SelectContent>

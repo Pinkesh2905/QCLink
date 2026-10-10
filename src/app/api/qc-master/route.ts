@@ -12,7 +12,7 @@ import { assertLookupIdsVisible } from '@/lib/lookups';
 import { requireCompanyId } from '@/lib/tenant';
 import { assertOwnFileKey } from '@/lib/upload';
 import { syncQCMasterToSheet, appendAuditLogToSheet } from '@/lib/sheets-sync';
-import { createQCMasterSchema, computeSpecification } from '@/validators/qc-master';
+import { createQCMasterSchema, computeSpecification, rangeError } from '@/validators/qc-master';
 import { errorResponse, validationErrorResponse, AppError } from '@/lib/errors';
 import type { QCMasterWithLookups, SpecificationCriteria } from '@/types/db';
 
@@ -33,6 +33,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     const sortableColumns: Record<string, string> = {
       QCUID: 'q.QCUID',
       ItemName: 'q.ItemName',
+      MasterAlias: 'q.MasterAlias',
       SpecCount: 'SpecCount',
       CreatedAt: 'q.CreatedAt',
       UpdatedAt: 'q.UpdatedAt',
@@ -48,9 +49,9 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     }
 
     if (search) {
-      conditions.push('(q.ItemName LIKE ? OR q.QCUID LIKE ?)');
+      conditions.push('(q.ItemName LIKE ? OR q.QCUID LIKE ? OR q.MasterAlias LIKE ?)');
       const pattern = `%${search}%`;
-      params.push(pattern, pattern);
+      params.push(pattern, pattern, pattern);
     }
 
     const whereClause = `WHERE ${conditions.join(' AND ')}`;
@@ -98,7 +99,7 @@ export const POST = withWriteAuth(async (req: NextRequest, ctx) => {
       return validationErrorResponse(parsed.error.issues);
     }
 
-    const { ItemUID, ItemName, ImagePath, Specifications } = parsed.data;
+    const { ItemUID, ItemName, MasterAlias, ImagePath, Specifications } = parsed.data;
 
     // The item must exist in this company (the composite FK would also
     // reject it, but with an opaque 500 instead of a clear message).
@@ -108,6 +109,19 @@ export const POST = withWriteAuth(async (req: NextRequest, ctx) => {
     );
     if (!item) {
       throw new AppError('Selected item not found.', 400, 'ItemUID');
+    }
+
+    // The same item can have several templates, but not two with the same alias.
+    const [sameAlias] = await query<{ QCUID: string }>(
+      'SELECT QCUID FROM QCMaster WHERE CompanyID = ? AND ItemUID = ? AND MasterAlias = ? LIMIT 1',
+      [companyId, ItemUID, MasterAlias]
+    );
+    if (sameAlias) {
+      throw new AppError(
+        `A QC Master for "${ItemName}" with the Master Alias "${MasterAlias}" already exists (${sameAlias.QCUID}). Choose a different Master Alias.`,
+        409,
+        'MasterAlias'
+      );
     }
 
     assertOwnFileKey(ImagePath, companyId);
@@ -129,14 +143,20 @@ export const POST = withWriteAuth(async (req: NextRequest, ctx) => {
       criteriaMap.set(c.CriteriaID, c.CriteriaName);
     }
 
+    // A range needs its Max to be at least its Min
+    Specifications.forEach((spec, i) => {
+      const problem = rangeError(criteriaMap.get(spec.CriteriaID) || '', spec.MinVal, spec.MaxVal);
+      if (problem) throw new AppError(`Row ${i + 1}: ${problem} (Min ${spec.MinVal}, Max ${spec.MaxVal}).`, 400, `Specifications.${i}.MaxVal`);
+    });
+
     const qcUID = await withTransaction(async (conn) => {
       const uid = await generateUID(conn, companyId, 'QC');
 
       // Insert QC Master Header
       await conn.execute(
-        `INSERT INTO QCMaster (CompanyID, QCUID, ItemUID, ItemName, ImagePath, OwnerUserID, CreatedAt, UpdatedAt)
-         VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())`,
-        [companyId, uid, ItemUID, ItemName, ImagePath ?? null, ctx.user.userId]
+        `INSERT INTO QCMaster (CompanyID, QCUID, ItemUID, ItemName, MasterAlias, ImagePath, OwnerUserID, CreatedAt, UpdatedAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+        [companyId, uid, ItemUID, ItemName, MasterAlias, ImagePath ?? null, ctx.user.userId]
       );
 
       await writeCreateAudit(conn, companyId, 'QCMaster', uid, ctx.user.userId);

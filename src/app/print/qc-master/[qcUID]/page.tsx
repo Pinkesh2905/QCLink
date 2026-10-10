@@ -135,6 +135,16 @@ export default async function QCPrintPage({ params }: QCPrintPageProps) {
                   {qc.ItemName}
                 </td>
               </tr>
+              {qc.MasterAlias && (
+                <tr className="border-b border-slate-300">
+                  <td className="bg-slate-50 font-medium text-slate-600 px-2 py-1 border-r border-slate-300">
+                    Master Alias
+                  </td>
+                  <td className="font-medium text-slate-900 px-2 py-1 border-r border-slate-300 break-words" colSpan={3}>
+                    {qc.MasterAlias}
+                  </td>
+                </tr>
+              )}
               <tr>
                 <td className="bg-slate-50 font-medium text-slate-600 px-2 py-1 border-r border-slate-300">
                   Prepared By

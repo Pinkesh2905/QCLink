@@ -114,7 +114,7 @@ export function SpecGrid({
         <Button
           type="button"
           variant="outline"
-          className="w-full border-dashed"
+          className="w-full border-black bg-black text-white hover:bg-black/85 hover:text-white"
           onClick={handleAddRow}
           disabled={isMaxReached}
         >

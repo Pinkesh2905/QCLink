@@ -12,7 +12,7 @@ import { requireCompanyId } from '@/lib/tenant';
 import { assertOwnFileKey } from '@/lib/upload';
 import { syncQCMasterToSheet, appendAuditLogToSheet, type SheetAuditEntry } from '@/lib/sheets-sync';
 import { enforceFieldPermissions } from '@/lib/field-permissions';
-import { updateQCMasterSchema, computeSpecification } from '@/validators/qc-master';
+import { updateQCMasterSchema, computeSpecification, rangeError } from '@/validators/qc-master';
 import { errorResponse, validationErrorResponse, AppError } from '@/lib/errors';
 import type {
   QCMaster,
@@ -109,8 +109,24 @@ export const PUT = withWriteAuth(async (req: NextRequest, ctx) => {
     }
 
     // 1. Header Diff & Permission Check
-    const headerFields = ['ImagePath'];
+    const headerFields = ['ImagePath', 'MasterAlias'];
     const newHeaderRow: Record<string, unknown> = { ...currentQC };
+
+    if (data.MasterAlias !== undefined && data.MasterAlias !== currentQC.MasterAlias) {
+      // the same item cannot have two templates with the same alias
+      const [sameAlias] = await query<{ QCUID: string }>(
+        'SELECT QCUID FROM QCMaster WHERE CompanyID = ? AND ItemUID = ? AND MasterAlias = ? AND QCUID <> ? LIMIT 1',
+        [companyId, currentQC.ItemUID, data.MasterAlias, qcUID]
+      );
+      if (sameAlias) {
+        throw new AppError(
+          `A QC Master for "${currentQC.ItemName}" with the Master Alias "${data.MasterAlias}" already exists (${sameAlias.QCUID}). Choose a different Master Alias.`,
+          409,
+          'MasterAlias'
+        );
+      }
+      newHeaderRow.MasterAlias = data.MasterAlias;
+    }
 
     if ('ImagePath' in data) {
       assertOwnFileKey(data.ImagePath, companyId, currentQC.ImagePath);
@@ -128,9 +144,24 @@ export const PUT = withWriteAuth(async (req: NextRequest, ctx) => {
       await enforceFieldPermissions('QCMaster', changedHeaderFields, ctx.user.role);
     }
 
+    // Load criteria map: for the range check below and for computing Specification
+    const criteriaRows = await query<SpecificationCriteria>(
+      'SELECT CriteriaID, CriteriaName FROM SpecificationCriteria'
+    );
+    const criteriaMap = new Map<number, string>();
+    for (const c of criteriaRows) {
+      criteriaMap.set(c.CriteriaID, c.CriteriaName);
+    }
+
     // 2. Specifications Diff & Permission Check
     let specsChanged = false;
     if (data.Specifications) {
+      // A range needs its Max to be at least its Min
+      data.Specifications.forEach((spec, i) => {
+        const problem = rangeError(criteriaMap.get(spec.CriteriaID) || '', spec.MinVal, spec.MaxVal);
+        if (problem) throw new AppError(`Row ${i + 1}: ${problem} (Min ${spec.MinVal}, Max ${spec.MaxVal}).`, 400, `Specifications.${i}.MaxVal`);
+      });
+
       await assertLookupIdsVisible(companyId, [
         { slug: 'specification-criteria', ids: data.Specifications.map((s) => s.CriteriaID) },
         { slug: 'method-of-inspection', ids: data.Specifications.map((s) => s.MethodID) },
@@ -187,21 +218,12 @@ export const PUT = withWriteAuth(async (req: NextRequest, ctx) => {
       return NextResponse.json({ message: 'No changes detected' });
     }
 
-    // Load criteria map for computing Specification
-    const criteriaRows = await query<SpecificationCriteria>(
-      'SELECT CriteriaID, CriteriaName FROM SpecificationCriteria'
-    );
-    const criteriaMap = new Map<number, string>();
-    for (const c of criteriaRows) {
-      criteriaMap.set(c.CriteriaID, c.CriteriaName);
-    }
-
     await withTransaction(async (conn) => {
       // 1. Apply header updates if any
       if (headerDiffs.length > 0) {
         await conn.execute(
-          'UPDATE QCMaster SET ImagePath = ?, UpdatedAt = NOW() WHERE CompanyID = ? AND QCUID = ?',
-          [newHeaderRow.ImagePath, companyId, qcUID] as any
+          'UPDATE QCMaster SET ImagePath = ?, MasterAlias = ?, UpdatedAt = NOW() WHERE CompanyID = ? AND QCUID = ?',
+          [newHeaderRow.ImagePath ?? null, newHeaderRow.MasterAlias ?? null, companyId, qcUID] as any
         );
         await writeAuditDiffs(conn, companyId, 'QCMaster', qcUID, headerDiffs, ctx.user.userId);
       }

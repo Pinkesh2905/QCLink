@@ -5,7 +5,7 @@ import { NumberInput } from '@/components/ui/number-input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { Trash2 } from 'lucide-react';
-import { computeSpecification, type QCSpecInputSchema } from '@/validators/qc-master';
+import { computeSpecification, rangeError, type QCSpecInputSchema } from '@/validators/qc-master';
 
 interface LookupItem {
   id: number;
@@ -58,6 +58,9 @@ export function SpecRow({
   const isOnlyMax = normCriteria.includes('only max');
   const isRange = normCriteria.includes('range') || normCriteria.includes('min max');
   const isOther = normCriteria.includes('other');
+
+  // A range whose Max is below its Min cannot be saved
+  const rangeProblem = isRange ? rangeError(criteriaName, row.MinVal, row.MaxVal) : null;
 
   // Compute preview of Specification
   const computedSpec = computeSpecification(
@@ -193,6 +196,7 @@ export function SpecRow({
  maxDecimals={4}
  onValueChange={(v) => onChange({ ...row, MinVal: v })}
                   placeholder="Min"
+                  aria-invalid={!!rangeProblem}
                   disabled={checkDisabled('MinVal')}
                   className="h-9 text-sm"
                 />
@@ -204,10 +208,16 @@ export function SpecRow({
  maxDecimals={4}
  onValueChange={(v) => onChange({ ...row, MaxVal: v })}
                   placeholder="Max"
+                  aria-invalid={!!rangeProblem}
                   disabled={checkDisabled('MaxVal')}
                   className="h-9 text-sm"
                 />
               </div>
+              {rangeProblem && (
+                <p role="alert" className="col-span-2 text-xs font-medium text-destructive">
+                  {rangeProblem}: Max ({row.MaxVal}) is below Min ({row.MinVal}).
+                </p>
+              )}
             </div>
           )}
 
