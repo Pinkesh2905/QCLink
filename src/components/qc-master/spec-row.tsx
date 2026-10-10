@@ -1,6 +1,7 @@
 'use client';
 
 import { Input } from '@/components/ui/input';
+import { NumberInput } from '@/components/ui/number-input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { Trash2 } from 'lucide-react';
@@ -158,16 +159,9 @@ export function SpecRow({
           {isOnlyMin && (
             <div>
               <label className="text-xs font-medium">Min Value</label>
-              <Input
-                type="number"
-                step="any"
-                value={row.MinVal != null ? String(row.MinVal) : ''}
-                onChange={(e) =>
-                  onChange({
-                    ...row,
-                    MinVal: e.target.value !== '' ? Number(e.target.value) : null,
-                  })
-                }
+              <NumberInput
+ value={row.MinVal}
+ onValueChange={(v) => onChange({ ...row, MinVal: v })}
                 placeholder="e.g. 5.0"
                 disabled={checkDisabled('MinVal')}
                 className="h-9 text-sm"
@@ -178,16 +172,9 @@ export function SpecRow({
           {isOnlyMax && (
             <div>
               <label className="text-xs font-medium">Max Value</label>
-              <Input
-                type="number"
-                step="any"
-                value={row.MaxVal != null ? String(row.MaxVal) : ''}
-                onChange={(e) =>
-                  onChange({
-                    ...row,
-                    MaxVal: e.target.value !== '' ? Number(e.target.value) : null,
-                  })
-                }
+              <NumberInput
+ value={row.MaxVal}
+ onValueChange={(v) => onChange({ ...row, MaxVal: v })}
                 placeholder="e.g. 10.0"
                 disabled={checkDisabled('MaxVal')}
                 className="h-9 text-sm"
@@ -199,16 +186,9 @@ export function SpecRow({
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="text-xs font-medium">Min</label>
-                <Input
-                  type="number"
-                  step="any"
-                  value={row.MinVal != null ? String(row.MinVal) : ''}
-                  onChange={(e) =>
-                    onChange({
-                      ...row,
-                      MinVal: e.target.value !== '' ? Number(e.target.value) : null,
-                    })
-                  }
+                <NumberInput
+ value={row.MinVal}
+ onValueChange={(v) => onChange({ ...row, MinVal: v })}
                   placeholder="Min"
                   disabled={checkDisabled('MinVal')}
                   className="h-9 text-sm"
@@ -216,16 +196,9 @@ export function SpecRow({
               </div>
               <div>
                 <label className="text-xs font-medium">Max</label>
-                <Input
-                  type="number"
-                  step="any"
-                  value={row.MaxVal != null ? String(row.MaxVal) : ''}
-                  onChange={(e) =>
-                    onChange({
-                      ...row,
-                      MaxVal: e.target.value !== '' ? Number(e.target.value) : null,
-                    })
-                  }
+                <NumberInput
+ value={row.MaxVal}
+ onValueChange={(v) => onChange({ ...row, MaxVal: v })}
                   placeholder="Max"
                   disabled={checkDisabled('MaxVal')}
                   className="h-9 text-sm"

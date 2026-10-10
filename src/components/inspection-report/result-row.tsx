@@ -1,6 +1,7 @@
 'use client';
 
 import { Input } from '@/components/ui/input';
+import { NumberInput } from '@/components/ui/number-input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import type { InspectionResultInputSchema } from '@/validators/inspection-report';
@@ -68,16 +69,9 @@ export function ResultRow({
             Actual Observed Value {!isOther && <span className="text-destructive">*</span>}
           </label>
           {!isOther ? (
-            <Input
-              type="number"
-              step="any"
-              value={row.Actual != null ? String(row.Actual) : ''}
-              onChange={(e) =>
-                onChange({
-                  ...row,
-                  Actual: e.target.value !== '' ? Number(e.target.value) : null,
-                })
-              }
+            <NumberInput
+ value={row.Actual}
+ onValueChange={(v) => onChange({ ...row, Actual: v })}
               placeholder="Enter measured value"
               disabled={checkDisabled('Actual')}
               className="h-9 text-sm"
