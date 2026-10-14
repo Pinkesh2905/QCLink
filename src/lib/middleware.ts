@@ -6,7 +6,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateSession } from './session';
 import { READ_ONLY_MESSAGE } from './tenant';
+import { errorResponse } from './errors';
 import type { SessionUser } from '@/types/auth';
+
+
+/**
+ * validateSession() for route wrappers. A database outage becomes the clean 503 response here, because
+ * the session check runs before a handler's own try/catch and would otherwise escape as a bare 500.
+ */
+async function lookupSession(): Promise<{ user: SessionUser | null } | { failure: NextResponse }> {
+  try {
+    return { user: await validateSession() };
+  } catch (error) {
+    return { failure: errorResponse(error) };
+  }
+}
 
 type RouteContext<T> = {
   params: Promise<T>;
@@ -27,7 +41,9 @@ export function withAuth<T = any>(handler: RouteHandler<T>) {
     req: NextRequest,
     ctx: { params: Promise<T> }
   ): Promise<NextResponse> => {
-    const user = await validateSession();
+    const lookup = await lookupSession();
+    if ('failure' in lookup) return lookup.failure;
+    const user = lookup.user;
 
     if (!user) {
       return NextResponse.json(
@@ -50,7 +66,9 @@ export function withWriteAuth<T = any>(handler: RouteHandler<T>) {
     req: NextRequest,
     ctx: { params: Promise<T> }
   ): Promise<NextResponse> => {
-    const user = await validateSession();
+    const lookup = await lookupSession();
+    if ('failure' in lookup) return lookup.failure;
+    const user = lookup.user;
 
     if (!user) {
       return NextResponse.json(
@@ -83,7 +101,9 @@ export function withAdmin<T = any>(handler: RouteHandler<T>) {
     req: NextRequest,
     ctx: { params: Promise<T> }
   ): Promise<NextResponse> => {
-    const user = await validateSession();
+    const lookup = await lookupSession();
+    if ('failure' in lookup) return lookup.failure;
+    const user = lookup.user;
 
     if (!user) {
       return NextResponse.json(

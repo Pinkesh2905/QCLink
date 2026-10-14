@@ -30,6 +30,11 @@ export function getPool(): mysql.Pool {
       password,
       database,
       connectionLimit: 10,
+      // Give up quickly when MySQL cannot be reached, so the "temporarily unavailable" screen
+      // appears in seconds instead of the page hanging for the 10-second default.
+      connectTimeout: 6000,
+      enableKeepAlive: true,
+      keepAliveInitialDelay: 10000,
       waitForConnections: true,
       queueLimit: 0,
       // Return dates as strings to avoid timezone issues
