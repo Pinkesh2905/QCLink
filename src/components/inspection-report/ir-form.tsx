@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { DatePicker } from '@/components/ui/date-picker';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
@@ -512,12 +513,10 @@ export function IRForm({ initialData, isEdit = false }: IRFormProps) {
             <Label htmlFor="InspectionDate">
               Inspection Date <span className="text-destructive">*</span>
             </Label>
-            <Input
+            <DatePicker
               id="InspectionDate"
-              type="date"
               value={inspectionDate}
-              onChange={(e) => setInspectionDate(e.target.value)}
-              required
+              onChange={setInspectionDate}
               disabled={locked || isFieldDisabled('InspectionReports', 'InspectionDate', isEdit, user?.Role)}
             />
           </div>

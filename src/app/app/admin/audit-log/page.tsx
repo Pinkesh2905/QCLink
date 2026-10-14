@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { DatePicker } from '@/components/ui/date-picker';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { formatDateTimeIST } from '@/lib/datetime';
@@ -219,28 +220,32 @@ export default function AuditLogViewerPage() {
             {/* Start Date */}
             <div className="space-y-1">
               <label className="text-xs font-medium text-muted-foreground">From Date</label>
-              <Input
-                type="date"
+              <DatePicker
                 value={startDate}
-                onChange={(e) => {
-                  setStartDate(e.target.value);
+                max={endDate || undefined}
+                onChange={(v) => {
+                  setStartDate(v);
                   setPage(1);
                 }}
-                className="h-9 text-xs"
+                placeholder="Start date"
+                aria-label="From date"
+                clearable
               />
             </div>
 
             {/* End Date */}
             <div className="space-y-1">
               <label className="text-xs font-medium text-muted-foreground">To Date</label>
-              <Input
-                type="date"
+              <DatePicker
                 value={endDate}
-                onChange={(e) => {
-                  setEndDate(e.target.value);
+                min={startDate || undefined}
+                onChange={(v) => {
+                  setEndDate(v);
                   setPage(1);
                 }}
-                className="h-9 text-xs"
+                placeholder="End date"
+                aria-label="To date"
+                clearable
               />
             </div>
           </div>

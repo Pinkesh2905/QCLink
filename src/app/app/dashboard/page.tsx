@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { DatePicker } from '@/components/ui/date-picker';
 import { ItemCombobox } from '@/components/shared/item-combobox';
 import {
   Package,
@@ -283,22 +283,24 @@ export default function DashboardPage() {
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 flex-1 min-w-0">
               <div className="space-y-1 col-span-1">
                 <label className="text-[11px] font-medium text-muted-foreground">From</label>
-                <Input
-                  type="date"
+                <DatePicker
                   value={startDate}
                   max={endDate || undefined}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className="h-9 text-xs"
+                  onChange={setStartDate}
+                  placeholder="Start date"
+                  aria-label="From date"
+                  clearable
                 />
               </div>
               <div className="space-y-1 col-span-1">
                 <label className="text-[11px] font-medium text-muted-foreground">To</label>
-                <Input
-                  type="date"
+                <DatePicker
                   value={endDate}
                   min={startDate || undefined}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  className="h-9 text-xs"
+                  onChange={setEndDate}
+                  placeholder="End date"
+                  aria-label="To date"
+                  clearable
                 />
               </div>
               <div className="space-y-1 col-span-2 sm:col-span-2">
