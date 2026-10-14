@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { notFound, redirect } from 'next/navigation';
 import { loadReport, withoutReviewerOnlyParts } from '@/lib/inspection-report';
+import { formatDateIST } from '@/lib/datetime';
 import { getCurrentUser } from '@/lib/session';
 import { PrintActions } from '@/components/print/print-actions';
 interface IRPrintPageProps {
@@ -35,6 +36,13 @@ function renderOutcomeBadge(statusName?: string | null) {
       Accept
     </span>
   );
+}
+
+function renderReviewStatus(status?: string | null) {
+  if (status === 'Review Done') return <span className="font-bold text-emerald-800">Review Done</span>;
+  if (status === 'Review Rejected') return <span className="font-bold text-rose-800">Review Rejected</span>;
+  if (status === 'Review Pending') return <span className="font-bold text-amber-800">Review Pending</span>;
+  return <span className="text-slate-500">Not sent for review</span>;
 }
 
 function renderHeaderStamp(statusName?: string | null) {
@@ -76,6 +84,12 @@ export default async function IRPrintPage({ params }: IRPrintPageProps) {
   const results = loaded.results;
 
   const rowCount = results.length;
+
+  // A review date exists only once the reviewer has acted (Done or Rejected)
+  const reviewedOn =
+    ir.ReviewedAt && (ir.ReviewStatus === 'Review Done' || ir.ReviewStatus === 'Review Rejected')
+      ? formatDateIST(ir.ReviewedAt as unknown as string)
+      : null;
 
   // Single-page fit row density configuration
   let densityClass = 'text-[10px] sm:text-[11px]';
@@ -188,6 +202,20 @@ export default async function IRPrintPage({ params }: IRPrintPageProps) {
                   {ir.ReviewerName || '—'}
                 </td>
               </tr>
+              <tr className="border-t border-slate-300">
+                <td className="bg-slate-50 font-medium text-slate-600 px-2 py-1 border-r border-slate-300">
+                  Review Status
+                </td>
+                <td className="px-2 py-1 border-r border-slate-300">
+                  {renderReviewStatus(ir.ReviewStatus)}
+                </td>
+                <td className="bg-slate-50 font-medium text-slate-600 px-2 py-1 border-r border-slate-300">
+                  Reviewed On
+                </td>
+                <td className="text-slate-900 px-2 py-1">
+                  {reviewedOn || '—'}
+                </td>
+              </tr>
             </tbody>
           </table>
 
@@ -254,7 +282,7 @@ export default async function IRPrintPage({ params }: IRPrintPageProps) {
               <div className="border-b border-slate-900 w-full mb-1" />
               <div className="flex justify-between text-[9px] sm:text-[10px] text-slate-600 font-mono">
                 <span className="truncate">Name: {ir.OwnerName || 'QA Inspector'}</span>
-                <span className="shrink-0">Date: ___/___/20__</span>
+                <span className="shrink-0">Date: {formattedInspectionDate}</span>
               </div>
             </div>
             <div>
@@ -262,7 +290,7 @@ export default async function IRPrintPage({ params }: IRPrintPageProps) {
               <div className="border-b border-slate-900 w-full mb-1" />
               <div className="flex justify-between text-[9px] sm:text-[10px] text-slate-600 font-mono">
                 <span className="truncate">Name: {ir.ReviewerName || 'QA Manager'}</span>
-                <span className="shrink-0">Date: ___/___/20__</span>
+                <span className="shrink-0">Date: {reviewedOn || '___/___/20__'}</span>
               </div>
             </div>
           </div>

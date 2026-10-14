@@ -3,11 +3,12 @@
 // One A4 document layout used for the "Download PDF" button and for the file
 // attached to the reviewer's email. Server-side only.
 //
-// The reviewer's remark and review result are NOT part of this document: they
-// stay inside the app.
+// Shows the review status and the inspected / reviewed dates. The Reviewer Remark is NOT part of
+// this document: it stays inside the app, visible only to the reviewer.
 // ============================================================================
 
 import { Document, Page, Text, View, StyleSheet, renderToBuffer } from '@react-pdf/renderer';
+import { formatDateIST } from '@/lib/datetime';
 import type { InspectionReportWithLookups, InspectionResultWithLookups } from '@/types/db';
 
 export interface InspectionReportPdfData {
@@ -57,6 +58,14 @@ function formatDate(value: unknown): string {
   const d = new Date(value as string);
   if (Number.isNaN(d.getTime())) return pdfText(value);
   return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' });
+}
+
+/** Review status as printed, with the colour to print it in. Reports made before reviews existed have none. */
+function reviewLabel(status: string | null | undefined): { text: string; color: string } {
+  if (status === 'Review Done') return { text: 'Review Done', color: '#166534' };
+  if (status === 'Review Rejected') return { text: 'Review Rejected', color: '#9f1239' };
+  if (status === 'Review Pending') return { text: 'Review Pending', color: '#92400e' };
+  return { text: 'Not sent for review', color: '#475569' };
 }
 
 type Tone = 'accept' | 'deviation' | 'reject';
@@ -115,6 +124,12 @@ export function InspectionReportDocument({ companyName, report, results }: Inspe
   const toneColor = COLORS[tone];
   const stampText = tone === 'deviation' ? 'STATUS: ACCEPT UNDER DEVIATION' : tone === 'reject' ? 'STATUS: REJECTED' : 'STATUS: ACCEPTED';
   const rowCount = results.length;
+  const review = reviewLabel(report.ReviewStatus);
+  // A date only exists once the reviewer has acted (Done or Rejected); a pending report has none yet
+  const reviewedOn =
+    report.ReviewedAt && (report.ReviewStatus === 'Review Done' || report.ReviewStatus === 'Review Rejected')
+      ? formatDateIST(report.ReviewedAt as unknown as string)
+      : '—';
   const fontSize = rowCount > 20 ? 8 : rowCount > 10 ? 8.5 : 9;
 
   return (
@@ -153,11 +168,17 @@ export function InspectionReportDocument({ companyName, report, results }: Inspe
             <Text style={[styles.infoLabel, { width: '22%' }]}>QC Spec Ref</Text>
             <Text style={[styles.infoValue, { width: '28%' }]}>{pdfText(report.QCUID)}</Text>
           </View>
-          <View style={[styles.infoRow, { borderBottomWidth: 0 }]}>
+          <View style={styles.infoRow}>
             <Text style={[styles.infoLabel, { width: '20%' }]}>Inspected By</Text>
             <Text style={[styles.infoValue, { width: '30%', borderRightWidth: 1, borderRightColor: COLORS.lightLine }]}>{pdfText(report.OwnerName) || 'System'}</Text>
             <Text style={[styles.infoLabel, { width: '22%' }]}>Reviewer</Text>
             <Text style={[styles.infoValue, { width: '28%' }]}>{pdfText(report.ReviewerName) || '—'}</Text>
+          </View>
+          <View style={[styles.infoRow, { borderBottomWidth: 0 }]}>
+            <Text style={[styles.infoLabel, { width: '20%' }]}>Review Status</Text>
+            <Text style={[styles.infoValue, { width: '30%', borderRightWidth: 1, borderRightColor: COLORS.lightLine, fontFamily: 'Helvetica-Bold', color: review.color }]}>{review.text}</Text>
+            <Text style={[styles.infoLabel, { width: '22%' }]}>Reviewed On</Text>
+            <Text style={[styles.infoValue, { width: '28%' }]}>{reviewedOn}</Text>
           </View>
         </View>
 
@@ -204,7 +225,7 @@ export function InspectionReportDocument({ companyName, report, results }: Inspe
             <View style={styles.signLine} />
             <View style={styles.signMeta}>
               <Text>Name: {pdfText(report.OwnerName) || 'QA Inspector'}</Text>
-              <Text>Date: ___/___/20__</Text>
+              <Text>Date: {formatDate(report.InspectionDate)}</Text>
             </View>
           </View>
           <View style={styles.signBox}>
@@ -212,7 +233,7 @@ export function InspectionReportDocument({ companyName, report, results }: Inspe
             <View style={styles.signLine} />
             <View style={styles.signMeta}>
               <Text>Name: {pdfText(report.ReviewerName) || 'QA Manager'}</Text>
-              <Text>Date: ___/___/20__</Text>
+              <Text>Date: {reviewedOn === '—' ? '___/___/20__' : reviewedOn}</Text>
             </View>
           </View>
         </View>
