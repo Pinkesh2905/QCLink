@@ -1,12 +1,14 @@
 'use client';
 
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { DataTable, type Column } from '@/components/shared/data-table';
 import { ExportButton } from '@/components/shared/export-button';
+import { EmployeeImportModal } from '@/components/employee-master/import-modal';
 import { useSession } from '@/hooks/use-session';
-import { Plus } from 'lucide-react';
+import { Plus, Upload } from 'lucide-react';
 import { formatDateIST } from '@/lib/datetime';
 import type { EmployeeWithOwner } from '@/types/db';
 
@@ -52,6 +54,10 @@ const columns: Column<EmployeeRow>[] = [
 export default function EmployeeMasterListPage() {
   const router = useRouter();
   const { user } = useSession();
+  const [importOpen, setImportOpen] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  const isAdmin = user?.Role === 'Admin';
 
   return (
     <div className="space-y-6">
@@ -66,6 +72,17 @@ export default function EmployeeMasterListPage() {
         <div className="flex flex-wrap items-center gap-2">
           <ExportButton exportUrl="/api/employees/export" label="Export" />
 
+          {isAdmin && (
+            <Button
+              variant="outline"
+              className="w-full sm:w-auto shrink-0"
+              onClick={() => setImportOpen(true)}
+            >
+              <Upload className="mr-2 h-4 w-4" />
+              Import
+            </Button>
+          )}
+
           {!user?.ReadOnly && (
             <Button className="w-full sm:w-auto shrink-0" onClick={() => router.push('/app/employee-master/new')}>
               <Plus className="mr-2 h-4 w-4" />
@@ -76,12 +93,24 @@ export default function EmployeeMasterListPage() {
       </div>
 
       <DataTable<EmployeeRow>
+        key={refreshKey}
         columns={columns}
         fetchUrl="/api/employees"
         searchPlaceholder="Search by name, email, department..."
         rowKey={(row) => row.EmployeeUID}
         onRowClick={(row) => router.push(`/app/employee-master/${row.EmployeeUID}`)}
       />
+
+      {isAdmin && (
+        <EmployeeImportModal
+          open={importOpen}
+          onClose={() => setImportOpen(false)}
+          onSuccess={() => {
+            setRefreshKey((k) => k + 1);
+            router.refresh();
+          }}
+        />
+      )}
     </div>
   );
 }
