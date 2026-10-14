@@ -15,7 +15,7 @@ import { errorResponse, AppError } from '@/lib/errors';
 // is Admin-only, since it can expose other users' role/status change history
 // or system-wide activity, not just "my record's" history.
 const USER_VISIBLE_TABLES = new Set([
-  'Items', 'QCMaster', 'QCSpecifications', 'InspectionReports', 'InspectionResults',
+  'Items', 'QCMaster', 'QCSpecifications', 'InspectionReports', 'InspectionResults', 'Employees',
 ]);
 
 export const GET = withAuth(async (req: NextRequest, ctx) => {

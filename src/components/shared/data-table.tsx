@@ -69,7 +69,7 @@ export function DataTable<T extends object>({
         params.set('sortOrder', sortOrder);
       }
 
-      const res = await fetch(`${fetchUrl}?${params.toString()}`);
+      const res = await fetch(`${fetchUrl}${fetchUrl.includes('?') ? '&' : '?'}${params.toString()}`);
       if (res.ok) {
         const json = await res.json();
         setData(json.data);

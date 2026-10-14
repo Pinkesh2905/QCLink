@@ -1,24 +1,27 @@
 // ============================================================================
 // GET /api/inspection-reports/[iirUID] — report detail + snapshot results
 // PUT /api/inspection-reports/[iirUID] — update report + results
+//
+// Review rules enforced here (the review itself is POST .../review):
+//  - the Reviewer Remark is only ever returned to the reviewer;
+//  - a report whose review is "Done" is locked until the reviewer reopens it;
+//  - editing a rejected report sends it back for review (status Pending + a new email);
+//  - changing the reviewer sends it to the new person, with the old remark cleared.
 // ============================================================================
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { withAuth, withWriteAuth } from '@/lib/middleware';
 import { query, withTransaction } from '@/lib/db';
-import { diffFields, writeAuditDiffs, writeAuditLog } from '@/lib/audit';
+import { diffFields, writeAuditDiffs, writeAuditLog, type AuditEntry } from '@/lib/audit';
 import { requireCompanyId } from '@/lib/tenant';
 import { assertOwnFileKey } from '@/lib/upload';
 import { syncInspectionReportToSheet, appendAuditLogToSheet, type SheetAuditEntry } from '@/lib/sheets-sync';
 import { enforceFieldPermissions } from '@/lib/field-permissions';
+import { loadReport, presentReport, REVIEW_DONE, REVIEW_PENDING, REVIEW_REJECTED } from '@/lib/inspection-report';
+import { sendReviewRequestForReport } from '@/lib/review-notify';
 import { updateInspectionReportSchema } from '@/validators/inspection-report';
 import { errorResponse, validationErrorResponse, AppError } from '@/lib/errors';
-import type {
-  InspectionReport,
-  InspectionReportWithLookups,
-  InspectionResult,
-  InspectionResultWithLookups,
-} from '@/types/db';
+import type { InspectionReport, InspectionResult } from '@/types/db';
 
 // ---------------------------------------------------------------------------
 // GET — Inspection Report Detail
@@ -26,47 +29,16 @@ import type {
 export const GET = withAuth(async (_req: NextRequest, ctx) => {
   try {
     const companyId = requireCompanyId(ctx.user);
-    const params = await ctx.params;
-    const iirUID = params.iirUID;
+    const { iirUID } = await ctx.params;
 
-    const headers = await query<InspectionReportWithLookups>(
-      `SELECT r.*,
-              rs.ResultStatusName AS InspectionStatusName,
-              usr.Name AS OwnerName
-       FROM InspectionReports r
-       LEFT JOIN ResultStatus rs ON r.InspectionStatusID = rs.ResultStatusID
-       LEFT JOIN Users usr ON r.OwnerUserID = usr.UserID
-       WHERE r.CompanyID = ? AND r.IIRUID = ?`,
-      [companyId, iirUID]
-    );
-
-    if (headers.length === 0) {
+    const loaded = await loadReport(companyId, iirUID);
+    if (!loaded) {
       throw new AppError('Inspection Report not found', 404);
     }
 
-    const results = await query<InspectionResultWithLookups>(
-      `SELECT res.*,
-              c.CriteriaName,
-              m.MethodName,
-              f.FrequencyName,
-              resp.ResponsibilityName,
-              rp.ReactionPlanName,
-              rs.ResultStatusName AS ResultStatusName
-       FROM InspectionResults res
-       LEFT JOIN SpecificationCriteria c ON res.CriteriaID = c.CriteriaID
-       LEFT JOIN MethodOfInspection m ON res.MethodID = m.MethodID
-       LEFT JOIN InspectionFrequency f ON res.FrequencyID = f.FrequencyID
-       LEFT JOIN Responsibility resp ON res.ResponsibilityID = resp.ResponsibilityID
-       LEFT JOIN ReactionPlan rp ON res.ReactionPlanID = rp.ReactionPlanID
-       LEFT JOIN ResultStatus rs ON res.ResultStatusID = rs.ResultStatusID
-       WHERE res.CompanyID = ? AND res.IIRUID = ?
-       ORDER BY res.SrNo ASC`,
-      [companyId, iirUID]
-    );
-
     return NextResponse.json({
-      ...headers[0],
-      Results: results,
+      ...presentReport(loaded.header, ctx.user.email),
+      Results: loaded.results,
     });
   } catch (error) {
     return errorResponse(error);
@@ -79,8 +51,7 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
 export const PUT = withWriteAuth(async (req: NextRequest, ctx) => {
   try {
     const companyId = requireCompanyId(ctx.user);
-    const params = await ctx.params;
-    const iirUID = params.iirUID;
+    const { iirUID } = await ctx.params;
 
     const body = await req.json();
     const parsed = updateInspectionReportSchema.safeParse(body);
@@ -100,8 +71,15 @@ export const PUT = withWriteAuth(async (req: NextRequest, ctx) => {
       throw new AppError('Inspection Report not found', 404);
     }
 
+    if (currentIR.ReviewStatus === REVIEW_DONE) {
+      throw new AppError(
+        'This report has been reviewed and is locked. Ask the reviewer to reopen the review if it needs a change.',
+        409
+      );
+    }
+
     // 1. Header updates diff & permission check
-    const editableHeaderFields = ['InspectionDate', 'GRNNo', 'InvoicePath', 'InspectionStatusID'];
+    const editableHeaderFields = ['InspectionDate', 'GRNNo', 'InvoicePath', 'InspectionRemark', 'InspectionStatusID'];
     const newHeaderRow: Record<string, unknown> = { ...currentIR };
 
     if (data.InspectionDate) {
@@ -112,24 +90,40 @@ export const PUT = withWriteAuth(async (req: NextRequest, ctx) => {
       assertOwnFileKey(data.InvoicePath, companyId, currentIR.InvoicePath);
       newHeaderRow.InvoicePath = data.InvoicePath;
     }
+    if (data.InspectionRemark !== undefined) newHeaderRow.InspectionRemark = data.InspectionRemark;
     if (data.InspectionStatusID !== undefined) newHeaderRow.InspectionStatusID = data.InspectionStatusID;
+
+    // Changing the reviewer: must be an active employee; name and email are copied onto the report.
+    const reviewerChanged =
+      data.ReviewerEmployeeUID !== undefined && data.ReviewerEmployeeUID !== currentIR.ReviewerEmployeeUID;
+    if (reviewerChanged) {
+      const [reviewer] = await query<{ EmployeeUID: string; EmployeeName: string; Email: string }>(
+        'SELECT EmployeeUID, EmployeeName, Email FROM Employees WHERE CompanyID = ? AND EmployeeUID = ? AND IsActive = 1',
+        [companyId, data.ReviewerEmployeeUID]
+      );
+      if (!reviewer) {
+        throw new AppError('The selected reviewer is not an active employee.', 400, 'ReviewerEmployeeUID');
+      }
+      newHeaderRow.ReviewerEmployeeUID = reviewer.EmployeeUID;
+      newHeaderRow.ReviewerName = reviewer.EmployeeName;
+      newHeaderRow.ReviewerEmail = reviewer.Email;
+    }
 
     const headerDiffs = diffFields(
       currentIR as unknown as Record<string, unknown>,
       newHeaderRow,
-      editableHeaderFields
+      [...editableHeaderFields, ...(reviewerChanged ? ['ReviewerEmployeeUID', 'ReviewerName'] : [])]
     );
 
     if (headerDiffs.length > 0) {
-      const changedHeaderFields = headerDiffs.map((d) => d.field);
-      await enforceFieldPermissions('InspectionReports', changedHeaderFields, ctx.user.role);
+      await enforceFieldPermissions('InspectionReports', headerDiffs.map((d) => d.field), ctx.user.role);
     }
 
     // 2. Results updates diff & permission check
     let resultsChanged = false;
     if (data.Results && data.Results.length > 0) {
       const existingResults = await query<InspectionResult>(
-        `SELECT SrNo, Actual, ResultStatusID FROM InspectionResults
+        `SELECT SrNo, Actual, ResultStatusID, ObservedRemark FROM InspectionResults
          WHERE CompanyID = ? AND IIRUID = ? ORDER BY SrNo ASC`,
         [companyId, iirUID]
       );
@@ -166,6 +160,11 @@ export const PUT = withWriteAuth(async (req: NextRequest, ctx) => {
           changedResultFields.add('ResultStatusID');
           resultsChanged = true;
         }
+
+        if ((existing.ObservedRemark ?? null) !== (res.ObservedRemark ?? null)) {
+          changedResultFields.add('ObservedRemark');
+          resultsChanged = true;
+        }
       }
 
       if (changedResultFields.size > 0) {
@@ -181,34 +180,78 @@ export const PUT = withWriteAuth(async (req: NextRequest, ctx) => {
       return NextResponse.json({ message: 'No changes detected' });
     }
 
+    // 3. Review consequences of the edit
+    const resubmitted = currentIR.ReviewStatus === REVIEW_REJECTED; // fixed after a rejection
+    const sendBackForReview = reviewerChanged || resubmitted;
+    const nextReviewStatus = sendBackForReview ? REVIEW_PENDING : currentIR.ReviewStatus;
+    const clearReviewerRemark = reviewerChanged && !!currentIR.ReviewerRemark;
+
     await withTransaction(async (conn) => {
-      // 1. Header updates
-      if (headerDiffs.length > 0) {
+      // 1. Header updates (the Reviewer Remark is never touched here, except cleared when the reviewer changes)
+      if (headerDiffs.length > 0 || sendBackForReview) {
         await conn.execute(
           `UPDATE InspectionReports
-           SET InspectionDate = ?, GRNNo = ?, InvoicePath = ?, InspectionStatusID = ?, UpdatedAt = NOW()
+           SET InspectionDate = ?, GRNNo = ?, InvoicePath = ?, InspectionRemark = ?, InspectionStatusID = ?,
+               ReviewerEmployeeUID = ?, ReviewerName = ?, ReviewerEmail = ?,
+               ReviewStatus = ?, ReviewedAt = ?, ReviewerRemark = ?, ReviewEmailSentAt = ?,
+               UpdatedAt = NOW()
            WHERE CompanyID = ? AND IIRUID = ?`,
           [
             newHeaderRow.InspectionDate,
             newHeaderRow.GRNNo,
             newHeaderRow.InvoicePath ?? null,
+            newHeaderRow.InspectionRemark ?? null,
             newHeaderRow.InspectionStatusID,
+            newHeaderRow.ReviewerEmployeeUID ?? null,
+            newHeaderRow.ReviewerName ?? null,
+            newHeaderRow.ReviewerEmail ?? null,
+            nextReviewStatus ?? null,
+            sendBackForReview ? null : currentIR.ReviewedAt ?? null,
+            clearReviewerRemark ? null : currentIR.ReviewerRemark ?? null,
+            sendBackForReview ? null : currentIR.ReviewEmailSentAt ?? null,
             companyId,
             iirUID,
           ] as any
         );
 
+        const audit: AuditEntry[] = [];
+        if (sendBackForReview && currentIR.ReviewStatus !== nextReviewStatus) {
+          audit.push({
+            companyId,
+            tableName: 'InspectionReports',
+            recordId: iirUID,
+            actionType: 'UPDATE',
+            fieldName: 'ReviewStatus',
+            oldValue: currentIR.ReviewStatus,
+            newValue: nextReviewStatus,
+            changedByUserID: ctx.user.userId,
+          });
+        }
+        if (clearReviewerRemark) {
+          // The remark text itself is reviewer-only, so the history only records that it was cleared.
+          audit.push({
+            companyId,
+            tableName: 'InspectionReports',
+            recordId: iirUID,
+            actionType: 'UPDATE',
+            fieldName: 'ReviewerRemark',
+            oldValue: '(reviewer only)',
+            newValue: '(cleared: reviewer changed)',
+            changedByUserID: ctx.user.userId,
+          });
+        }
         await writeAuditDiffs(conn, companyId, 'InspectionReports', iirUID, headerDiffs, ctx.user.userId);
+        await writeAuditLog(conn, audit);
       }
 
-      // 2. Results updates (Actual, ResultStatusID)
+      // 2. Results updates (Actual, ResultStatusID, ObservedRemark)
       if (data.Results && resultsChanged) {
         for (const res of data.Results) {
           await conn.execute(
             `UPDATE InspectionResults
-             SET Actual = ?, ResultStatusID = ?, UpdatedAt = NOW()
+             SET Actual = ?, ResultStatusID = ?, ObservedRemark = ?, UpdatedAt = NOW()
              WHERE CompanyID = ? AND IIRUID = ? AND SrNo = ?`,
-            [res.Actual ?? null, res.ResultStatusID ?? null, companyId, iirUID, res.SrNo]
+            [res.Actual ?? null, res.ResultStatusID ?? null, res.ObservedRemark ?? null, companyId, iirUID, res.SrNo]
           );
         }
 
@@ -220,7 +263,7 @@ export const PUT = withWriteAuth(async (req: NextRequest, ctx) => {
             actionType: 'UPDATE',
             fieldName: 'InspectionResults',
             oldValue: 'Previous test results',
-            newValue: 'Updated actuals & statuses',
+            newValue: 'Updated actuals, statuses & remarks',
             changedByUserID: ctx.user.userId,
           },
         ]);
@@ -246,14 +289,24 @@ export const PUT = withWriteAuth(async (req: NextRequest, ctx) => {
         actionType: 'UPDATE',
         fieldName: 'InspectionResults',
         oldValue: 'Previous test results',
-        newValue: 'Updated actuals & statuses',
+        newValue: 'Updated actuals, statuses & remarks',
         changedByUserID: ctx.user.userId,
       });
     }
 
     await appendAuditLogToSheet(companyId, sheetAuditEntries);
 
-    return NextResponse.json({ message: 'Inspection Report updated successfully' });
+    if (sendBackForReview) {
+      after(async () => {
+        await sendReviewRequestForReport(companyId, iirUID, { isResubmission: resubmitted && !reviewerChanged });
+      });
+    }
+
+    return NextResponse.json({
+      message: sendBackForReview
+        ? 'Inspection Report updated and sent to the reviewer'
+        : 'Inspection Report updated successfully',
+    });
   } catch (error) {
     return errorResponse(error);
   }

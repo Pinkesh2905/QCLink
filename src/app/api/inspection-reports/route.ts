@@ -3,7 +3,7 @@
 // POST /api/inspection-reports — create report + snapshot results
 // ============================================================================
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { withAuth, withWriteAuth } from '@/lib/middleware';
 import { query, withTransaction } from '@/lib/db';
 import { generateUID } from '@/lib/uid';
@@ -13,6 +13,8 @@ import { requireCompanyId } from '@/lib/tenant';
 import { assertOwnFileKey } from '@/lib/upload';
 import { syncInspectionReportToSheet, appendAuditLogToSheet } from '@/lib/sheets-sync';
 import { createInspectionReportSchema } from '@/validators/inspection-report';
+import { presentReport, REVIEW_PENDING } from '@/lib/inspection-report';
+import { sendReviewRequestForReport } from '@/lib/review-notify';
 import { errorResponse, validationErrorResponse, AppError } from '@/lib/errors';
 import type { InspectionReportWithLookups } from '@/types/db';
 
@@ -35,6 +37,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
       InspectionDate: 'r.InspectionDate',
       GRNNo: 'r.GRNNo',
       StatusName: 'rs.ResultStatusName',
+      ReviewStatus: 'r.ReviewStatus',
       CreatedAt: 'r.CreatedAt',
       UpdatedAt: 'r.UpdatedAt',
     };
@@ -47,6 +50,12 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
       conditions.push('(r.ItemName LIKE ? OR r.IIRUID LIKE ? OR r.GRNNo LIKE ?)');
       const pattern = `%${search}%`;
       params.push(pattern, pattern, pattern);
+    }
+
+    // ?review=mine — reports waiting for the signed-in user to review them
+    if (url.searchParams.get('review') === 'mine') {
+      conditions.push('LOWER(r.ReviewerEmail) = LOWER(?) AND r.ReviewStatus = ?');
+      params.push(ctx.user.email, REVIEW_PENDING);
     }
 
     const whereClause = `WHERE ${conditions.join(' AND ')}`;
@@ -71,7 +80,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     );
 
     return NextResponse.json({
-      data: rows,
+      data: rows.map((row) => presentReport(row, ctx.user.email)),
       total: countRow.total,
       page,
       pageSize,
@@ -115,6 +124,16 @@ export const POST = withWriteAuth(async (req: NextRequest, ctx) => {
 
     assertOwnFileKey(data.InvoicePath, companyId);
 
+    // The reviewer must be an active employee of this company; their name and email are
+    // copied onto the report so later edits to the Employee Master do not rewrite history.
+    const [reviewer] = await query<{ EmployeeUID: string; EmployeeName: string; Email: string }>(
+      'SELECT EmployeeUID, EmployeeName, Email FROM Employees WHERE CompanyID = ? AND EmployeeUID = ? AND IsActive = 1',
+      [companyId, data.ReviewerEmployeeUID]
+    );
+    if (!reviewer) {
+      throw new AppError('The selected reviewer is not an active employee.', 400, 'ReviewerEmployeeUID');
+    }
+
     await assertLookupIdsVisible(companyId, [
       { slug: 'specification-criteria', ids: data.Results.map((r) => r.CriteriaID) },
       { slug: 'method-of-inspection', ids: data.Results.map((r) => r.MethodID) },
@@ -132,8 +151,9 @@ export const POST = withWriteAuth(async (req: NextRequest, ctx) => {
       await conn.execute(
         `INSERT INTO InspectionReports (
           CompanyID, IIRUID, InspectionDate, ItemUID, ItemName, QCUID, GRNNo,
-          InvoicePath, InspectionStatusID, OwnerUserID, CreatedAt, UpdatedAt
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+          InvoicePath, InspectionRemark, ReviewerEmployeeUID, ReviewerName, ReviewerEmail, ReviewStatus,
+          InspectionStatusID, OwnerUserID, CreatedAt, UpdatedAt
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
         [
           companyId,
           uid,
@@ -143,6 +163,11 @@ export const POST = withWriteAuth(async (req: NextRequest, ctx) => {
           data.QCUID,
           data.GRNNo,
           data.InvoicePath ?? null,
+          data.InspectionRemark,
+          reviewer.EmployeeUID,
+          reviewer.EmployeeName,
+          reviewer.Email,
+          REVIEW_PENDING,
           data.InspectionStatusID,
           ctx.user.userId,
         ]
@@ -159,8 +184,8 @@ export const POST = withWriteAuth(async (req: NextRequest, ctx) => {
           `INSERT INTO InspectionResults (
             CompanyID, IIRUID, SrNo, Parameter, CriteriaID, MinVal, MaxVal, OtherValue,
             MethodID, FrequencyID, ResponsibilityID, ReactionPlanID,
-            Specification, Actual, ResultStatusID, CreatedAt, UpdatedAt
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+            Specification, Actual, ResultStatusID, ObservedRemark, CreatedAt, UpdatedAt
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
           [
             companyId,
             uid,
@@ -177,6 +202,7 @@ export const POST = withWriteAuth(async (req: NextRequest, ctx) => {
             r.Specification,
             r.Actual ?? null,
             r.ResultStatusID ?? null,
+            r.ObservedRemark,
           ]
         );
       }
@@ -196,6 +222,12 @@ export const POST = withWriteAuth(async (req: NextRequest, ctx) => {
         changedByUserID: ctx.user.userId,
       },
     ]);
+
+    // Ask the reviewer to review it. Sent after the response so a slow mail server never delays
+    // saving; the report records when it went out, and the author can resend it.
+    after(async () => {
+      await sendReviewRequestForReport(companyId, iirUID);
+    });
 
     return NextResponse.json(
       { message: 'Inspection Report created successfully', IIRUID: iirUID },

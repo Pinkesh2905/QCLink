@@ -8,7 +8,7 @@
 import type { PoolConnection } from 'mysql2/promise';
 import type { UIDCounter } from '@/types/db';
 
-export type UIDPrefix = 'Item' | 'QC' | 'IIR';
+export type UIDPrefix = 'Item' | 'QC' | 'IIR' | 'Emp';
 
 const DEFAULT_PAD_WIDTH = 2;
 

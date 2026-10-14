@@ -1,13 +1,8 @@
 import type { Metadata } from 'next';
 import { notFound, redirect } from 'next/navigation';
-import { query } from '@/lib/db';
+import { loadReport, withoutReviewerOnlyParts } from '@/lib/inspection-report';
 import { getCurrentUser } from '@/lib/session';
 import { PrintActions } from '@/components/print/print-actions';
-import type {
-  InspectionReportWithLookups,
-  InspectionResultWithLookups,
-} from '@/types/db';
-
 interface IRPrintPageProps {
   params: Promise<{ iirUID: string }>;
 }
@@ -71,42 +66,14 @@ export default async function IRPrintPage({ params }: IRPrintPageProps) {
   if (!user) redirect('/login');
   if (!user.companyId) notFound();
 
-  const headers = await query<InspectionReportWithLookups>(
-    `SELECT r.*,
-            rs.ResultStatusName AS InspectionStatusName,
-            usr.Name AS OwnerName
-     FROM InspectionReports r
-     LEFT JOIN ResultStatus rs ON r.InspectionStatusID = rs.ResultStatusID
-     LEFT JOIN Users usr ON r.OwnerUserID = usr.UserID
-     WHERE r.CompanyID = ? AND r.IIRUID = ?`,
-    [user.companyId, iirUID]
-  );
-
-  if (headers.length === 0) {
+  const loaded = await loadReport(user.companyId, iirUID);
+  if (!loaded) {
     notFound();
   }
 
-  const ir = headers[0];
-
-  const results = await query<InspectionResultWithLookups>(
-    `SELECT res.*,
-            c.CriteriaName,
-            m.MethodName,
-            f.FrequencyName,
-            resp.ResponsibilityName,
-            rp.ReactionPlanName,
-            rs.ResultStatusName AS ResultStatusName
-     FROM InspectionResults res
-     LEFT JOIN SpecificationCriteria c ON res.CriteriaID = c.CriteriaID
-     LEFT JOIN MethodOfInspection m ON res.MethodID = m.MethodID
-     LEFT JOIN InspectionFrequency f ON res.FrequencyID = f.FrequencyID
-     LEFT JOIN Responsibility resp ON res.ResponsibilityID = resp.ResponsibilityID
-     LEFT JOIN ReactionPlan rp ON res.ReactionPlanID = rp.ReactionPlanID
-     LEFT JOIN ResultStatus rs ON res.ResultStatusID = rs.ResultStatusID
-     WHERE res.CompanyID = ? AND res.IIRUID = ?
-     ORDER BY res.SrNo ASC`,
-    [user.companyId, iirUID]
-  );
+  // The reviewer's remark and review result are not part of the printed report.
+  const ir = withoutReviewerOnlyParts(loaded.header);
+  const results = loaded.results;
 
   const rowCount = results.length;
 
@@ -211,12 +178,29 @@ export default async function IRPrintPage({ params }: IRPrintPageProps) {
                 <td className="bg-slate-50 font-medium text-slate-600 px-2 py-1 border-r border-slate-300">
                   Inspected By
                 </td>
-                <td className="text-slate-900 px-2 py-1 truncate" colSpan={3}>
+                <td className="text-slate-900 px-2 py-1 truncate border-r border-slate-300">
                   {ir.OwnerName || 'System'}
+                </td>
+                <td className="bg-slate-50 font-medium text-slate-600 px-2 py-1 border-r border-slate-300">
+                  Reviewer
+                </td>
+                <td className="text-slate-900 px-2 py-1 truncate">
+                  {ir.ReviewerName || '—'}
                 </td>
               </tr>
             </tbody>
           </table>
+
+          {ir.InspectionRemark && (
+            <div>
+              <div className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-slate-800 mb-1">
+                Inspection Remark
+              </div>
+              <div className="border border-slate-400 px-2 py-1 text-[10px] sm:text-xs whitespace-pre-wrap break-words">
+                {ir.InspectionRemark}
+              </div>
+            </div>
+          )}
 
           {/* Test Results Table */}
           <div>
@@ -226,11 +210,12 @@ export default async function IRPrintPage({ params }: IRPrintPageProps) {
             <table className={`w-full table-fixed border-collapse border border-slate-400 text-left ${densityClass}`}>
               <thead>
                 <tr className="bg-slate-100 border-b border-slate-400 font-semibold text-slate-800 text-[9px] sm:text-[10px] uppercase tracking-wider">
-                  <th className={`${headerPadding} w-[7%] text-center border-r border-slate-300`}>#</th>
-                  <th className={`${headerPadding} w-[28%] border-r border-slate-300`}>Parameter</th>
-                  <th className={`${headerPadding} w-[30%] border-r border-slate-300`}>Specification</th>
-                  <th className={`${headerPadding} w-[18%] border-r border-slate-300`}>Actual</th>
-                  <th className={`${headerPadding} w-[17%] text-center`}>Status</th>
+                  <th className={`${headerPadding} w-[5%] text-center border-r border-slate-300`}>#</th>
+                  <th className={`${headerPadding} w-[21%] border-r border-slate-300`}>Parameter</th>
+                  <th className={`${headerPadding} w-[17%] border-r border-slate-300`}>Specification</th>
+                  <th className={`${headerPadding} w-[13%] border-r border-slate-300`}>Actual</th>
+                  <th className={`${headerPadding} w-[13%] text-center border-r border-slate-300`}>Status</th>
+                  <th className={`${headerPadding} w-[31%]`}>Observed Remark</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-300">
@@ -248,8 +233,11 @@ export default async function IRPrintPage({ params }: IRPrintPageProps) {
                     <td className={`${cellPadding} font-mono font-semibold text-slate-950 border-r border-slate-300 truncate`}>
                       {res.Actual != null ? res.Actual : '—'}
                     </td>
-                    <td className={`${cellPadding} text-center`}>
+                    <td className={`${cellPadding} text-center border-r border-slate-300`}>
                       {renderOutcomeBadge(res.ResultStatusName)}
+                    </td>
+                    <td className={`${cellPadding} text-slate-800 break-words whitespace-pre-wrap`}>
+                      {res.ObservedRemark || ''}
                     </td>
                   </tr>
                 ))}
@@ -273,7 +261,7 @@ export default async function IRPrintPage({ params }: IRPrintPageProps) {
               <div className="text-[11px] sm:text-xs font-semibold text-slate-800 mb-4 sm:mb-5">Reviewed & Approved By:</div>
               <div className="border-b border-slate-900 w-full mb-1" />
               <div className="flex justify-between text-[9px] sm:text-[10px] text-slate-600 font-mono">
-                <span className="truncate">Name: QA Manager</span>
+                <span className="truncate">Name: {ir.ReviewerName || 'QA Manager'}</span>
                 <span className="shrink-0">Date: ___/___/20__</span>
               </div>
             </div>

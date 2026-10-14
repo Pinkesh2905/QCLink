@@ -1,12 +1,13 @@
 'use client';
 
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { DataTable, type Column } from '@/components/shared/data-table';
 import { ExportButton } from '@/components/shared/export-button';
 import { useSession } from '@/hooks/use-session';
-import { Plus } from 'lucide-react';
+import { Plus, ShieldCheck } from 'lucide-react';
 import { formatDateIST } from '@/lib/datetime';
 import type { InspectionReportWithLookups } from '@/types/db';
 
@@ -51,6 +52,26 @@ const columns: Column<InspectionReportWithLookups>[] = [
       );
     },
   },
+  {
+    key: 'ReviewStatus',
+    header: 'Review',
+    sortable: true,
+    render: (row) => {
+      if (!row.ReviewStatus) return <span className="text-xs text-muted-foreground">—</span>;
+      const cls =
+        row.ReviewStatus === 'Review Done'
+          ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+          : row.ReviewStatus === 'Review Rejected'
+          ? 'bg-red-50 text-red-700 border-red-300'
+          : 'bg-amber-50 text-amber-700 border-amber-300';
+      return (
+        <div className="flex flex-col gap-0.5">
+          <Badge variant="outline" className={cls}>{row.ReviewStatus}</Badge>
+          {row.ReviewerName && <span className="text-[11px] text-muted-foreground">{row.ReviewerName}</span>}
+        </div>
+      );
+    },
+  },
   { key: 'OwnerName', header: 'Inspector' },
   {
     key: 'UpdatedAt',
@@ -64,6 +85,7 @@ const columns: Column<InspectionReportWithLookups>[] = [
 export default function InspectionReportListPage() {
   const router = useRouter();
   const { user } = useSession();
+  const [onlyMine, setOnlyMine] = useState(false);
 
   return (
     <div className="space-y-6">
@@ -74,6 +96,15 @@ export default function InspectionReportListPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant={onlyMine ? 'default' : 'outline'}
+            className="w-full sm:w-auto shrink-0"
+            onClick={() => setOnlyMine((v) => !v)}
+            aria-pressed={onlyMine}
+          >
+            <ShieldCheck className="mr-2 h-4 w-4" />
+            Awaiting my review
+          </Button>
           <ExportButton exportUrl="/api/inspection-reports/export" label="Export" />
 
           {!user?.ReadOnly && (
@@ -86,8 +117,9 @@ export default function InspectionReportListPage() {
       </div>
 
       <DataTable<InspectionReportWithLookups>
+        key={onlyMine ? 'mine' : 'all'}
         columns={columns}
-        fetchUrl="/api/inspection-reports"
+        fetchUrl={onlyMine ? '/api/inspection-reports?review=mine' : '/api/inspection-reports'}
         searchPlaceholder="Search reports by item, UID or GRN..."
         rowKey={(row) => row.IIRUID}
         onRowClick={(row) => router.push(`/app/inspection-report/${row.IIRUID}`)}

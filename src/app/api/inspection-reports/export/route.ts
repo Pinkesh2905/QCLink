@@ -38,6 +38,9 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
       QCUID: string;
       GRNNo: string;
       InvoicePath: string | null;
+      InspectionRemark: string | null;
+      ReviewerName: string | null;
+      ReviewStatus: string | null;
       InspectionStatus: string | null;
       SrNo: number | null;
       Parameter: string | null;
@@ -52,6 +55,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
       Specification: string | null;
       Actual: number | null;
       RowResultStatus: string | null;
+      ObservedRemark: string | null;
       InspectorName: string | null;
       CreatedAt: Date;
       UpdatedAt: Date;
@@ -64,6 +68,9 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
          r.QCUID,
          r.GRNNo,
          r.InvoicePath,
+         r.InspectionRemark,
+         r.ReviewerName,
+         r.ReviewStatus,
          rsHeader.ResultStatusName AS InspectionStatus,
          res.SrNo,
          res.Parameter,
@@ -78,6 +85,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
          res.Specification,
          res.Actual,
          rsRow.ResultStatusName AS RowResultStatus,
+         res.ObservedRemark,
          usr.Name AS InspectorName,
          r.CreatedAt,
          r.UpdatedAt
@@ -104,6 +112,9 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
       'QCUID',
       'GRNNo',
       'InspectionStatus',
+      'InspectionRemark',
+      'Reviewer',
+      'ReviewStatus',
       'SrNo',
       'Parameter',
       'Criteria',
@@ -117,6 +128,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
       'Specification',
       'Actual',
       'ResultStatus',
+      'ObservedRemark',
       'Inspector',
       'CreatedAt',
       'UpdatedAt',
@@ -130,6 +142,9 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
       QCUID: r.QCUID,
       GRNNo: r.GRNNo,
       InspectionStatus: r.InspectionStatus || '',
+      InspectionRemark: r.InspectionRemark || '',
+      Reviewer: r.ReviewerName || '',
+      ReviewStatus: r.ReviewStatus || '',
       SrNo: r.SrNo != null ? r.SrNo : '',
       Parameter: r.Parameter || '',
       Criteria: r.CriteriaName || '',
@@ -143,6 +158,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
       Specification: r.Specification || '',
       Actual: r.Actual != null ? r.Actual : '',
       ResultStatus: r.RowResultStatus || '',
+      ObservedRemark: r.ObservedRemark || '',
       Inspector: r.InspectorName || '',
       CreatedAt: formatISTForExport(r.CreatedAt),
       UpdatedAt: formatISTForExport(r.UpdatedAt),

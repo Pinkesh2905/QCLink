@@ -31,6 +31,7 @@ const TABLES = [
   { label: 'QCSpecifications', value: 'QCSpecifications' },
   { label: 'InspectionReports', value: 'InspectionReports' },
   { label: 'InspectionResults', value: 'InspectionResults' },
+  { label: 'Employees (Employee Master)', value: 'Employees' },
   { label: 'Users', value: 'Users' },
   { label: 'Categories', value: 'Categories' },
   { label: 'UnitOfStock', value: 'UnitOfStock' },

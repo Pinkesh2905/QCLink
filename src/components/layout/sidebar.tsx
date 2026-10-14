@@ -13,6 +13,7 @@ import {
   Package,
   ClipboardCheck,
   FileText,
+  Users,
   CreditCard,
   Shield,
   LogOut,
@@ -47,6 +48,11 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: SidebarProps) {
       label: 'Store Master',
       href: '/app/store-master',
       icon: <Package className="h-5 w-5 shrink-0" />,
+    },
+    {
+      label: 'Employee Master',
+      href: '/app/employee-master',
+      icon: <Users className="h-5 w-5 shrink-0" />,
     },
     {
       label: 'QC Master',

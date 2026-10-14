@@ -52,13 +52,21 @@ function getAppUrl(): string {
 /**
  * Centralized email dispatcher handling Gmail SMTP, Resend, and local dev console logging.
  */
+export interface EmailAttachment {
+  filename: string;
+  content: Buffer;
+  contentType: string;
+}
+
+/** Resolves true when the message was handed to the provider (or printed in local dev), false when it failed. */
 async function dispatchEmail(options: {
   to: string | string[];
   subject: string;
   html: string;
   textSummary?: string;
-}): Promise<void> {
-  const { to, subject, html, textSummary } = options;
+  attachments?: EmailAttachment[];
+}): Promise<boolean> {
+  const { to, subject, html, textSummary, attachments } = options;
 
   if (isSMTPConfigured()) {
     try {
@@ -69,15 +77,22 @@ async function dispatchEmail(options: {
         to: recipients,
         subject,
         html,
+        attachments: attachments?.map((a) => ({
+          filename: a.filename,
+          content: a.content,
+          contentType: a.contentType,
+        })),
       });
       console.log(
         `[QCLink Email Success] Sent via Gmail SMTP to ${JSON.stringify(to)} (ID: ${info.messageId})`
       );
+      return true;
     } catch (error) {
       console.error(
         `[QCLink Email Error] Gmail SMTP failed to send email to ${JSON.stringify(to)}:`,
         error
       );
+      return false;
     }
   } else if (process.env.EMAIL_PROVIDER_API_KEY) {
     const resend = getResend();
@@ -86,6 +101,7 @@ async function dispatchEmail(options: {
       to,
       subject,
       html,
+      attachments: attachments?.map((a) => ({ filename: a.filename, content: a.content })),
     });
 
     if (result.error) {
@@ -93,11 +109,12 @@ async function dispatchEmail(options: {
         `[QCLink Email Error] Resend failed to send email to ${JSON.stringify(to)}:`,
         result.error
       );
-    } else {
-      console.log(
-        `[QCLink Email Success] Email sent via Resend to ${JSON.stringify(to)} (ID: ${result.data?.id})`
-      );
+      return false;
     }
+    console.log(
+      `[QCLink Email Success] Email sent via Resend to ${JSON.stringify(to)} (ID: ${result.data?.id})`
+    );
+    return true;
   } else {
     // Local development fallback
     if (!hasWarnedEmailFallback) {
@@ -113,7 +130,11 @@ async function dispatchEmail(options: {
     console.log(`Subject: ${subject}`);
     console.log(`--------------------------------------------------------`);
     console.log(textSummary || html);
+    if (attachments?.length) {
+      console.log(`Attachments: ${attachments.map((a) => `${a.filename} (${a.content.length} bytes)`).join(', ')}`);
+    }
     console.log(`========================================================\n`);
+    return true;
   }
 }
 
@@ -304,5 +325,75 @@ export async function sendPasswordResetEmail(
     });
   } catch (error) {
     console.error(`Failed to send password reset email to ${userEmail}:`, error);
+  }
+}
+
+/**
+ * 5. Ask the chosen reviewer to review an Incoming Inspection Report. The
+ *    report's PDF is attached. Resolves true when the email went out; a failure
+ *    never throws, so a mail problem cannot break saving the report.
+ */
+export async function sendReviewRequestEmail(options: {
+  to: string;
+  reviewerName: string;
+  companyName: string | null;
+  iirUID: string;
+  itemName: string;
+  grnNo: string;
+  inspectionDate: string;
+  inspectorName: string;
+  statusName: string | null;
+  isResubmission: boolean;
+  pdf: Buffer | null;
+}): Promise<boolean> {
+  try {
+    const reportUrl = `${getAppUrl()}/app/inspection-report/${encodeURIComponent(options.iirUID)}`;
+    const row = (label: string, value: string) =>
+      `<tr><td style="padding:6px 12px;color:#64748b;border-bottom:1px solid #e2e8f0;">${label}</td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0;"><strong>${escapeHtml(value)}</strong></td></tr>`;
+
+    const intro = options.isResubmission
+      ? `<p>The inspection report <strong>${escapeHtml(options.iirUID)}</strong> was updated after you rejected it and needs your review again.</p>`
+      : `<p>An incoming inspection report has been submitted and is waiting for your review.</p>`;
+
+    const html = emailLayout(
+      'Inspection Report Review',
+      `
+      <h2>Review required: ${escapeHtml(options.iirUID)}</h2>
+      <p>Hello ${escapeHtml(options.reviewerName)},</p>
+      ${intro}
+      <table style="width:100%;border-collapse:collapse;font-size:14px;margin:8px 0 4px;">
+        ${row('Report', options.iirUID)}
+        ${row('Item', options.itemName)}
+        ${row('GRN No', options.grnNo)}
+        ${row('Inspection date', options.inspectionDate)}
+        ${row('Inspected by', options.inspectorName)}
+        ${options.statusName ? row('Inspection status', options.statusName) : ''}
+        ${options.companyName ? row('Company', options.companyName) : ''}
+      </table>
+      <p style="text-align: center;">
+        <a href="${reportUrl}" class="button">Open the report to review</a>
+      </p>
+      <p style="font-size: 13px; color: #64748b;">
+        ${options.pdf ? 'The report is attached as a PDF. ' : ''}Sign in to QCLink with this email address to mark the review as done or rejected.
+      </p>
+      `
+    );
+
+    const textSummary = `Hello ${options.reviewerName},
+Review required for inspection report ${options.iirUID} (${options.itemName}, GRN ${options.grnNo}).
+Open it at: ${reportUrl}`;
+
+    return await dispatchEmail({
+      to: options.to,
+      subject: `${options.isResubmission ? 'Re-review' : 'Review'} required: ${options.iirUID} — ${options.itemName}`,
+      html,
+      textSummary,
+      attachments: options.pdf
+        ? [{ filename: `${options.iirUID}.pdf`, content: options.pdf, contentType: 'application/pdf' }]
+        : undefined,
+    });
+  } catch (error) {
+    console.error(`Failed to send review request email to ${options.to}:`, error);
+    return false;
   }
 }

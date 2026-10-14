@@ -1,12 +1,8 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
-import { query } from '@/lib/db';
 import { getCurrentUser } from '@/lib/session';
+import { loadReport, presentReport } from '@/lib/inspection-report';
 import { IRForm } from '@/components/inspection-report/ir-form';
-import type {
-  InspectionReportWithLookups,
-  InspectionResultWithLookups,
-} from '@/types/db';
 import type { InspectionReportDetailResponse } from '@/types/api';
 
 interface IRDetailPageProps {
@@ -26,44 +22,15 @@ export default async function IRDetailPage({ params }: IRDetailPageProps) {
   const user = await getCurrentUser();
   if (!user?.companyId) notFound();
 
-  const headers = await query<InspectionReportWithLookups>(
-    `SELECT r.*,
-            rs.ResultStatusName AS InspectionStatusName,
-            usr.Name AS OwnerName
-     FROM InspectionReports r
-     LEFT JOIN ResultStatus rs ON r.InspectionStatusID = rs.ResultStatusID
-     LEFT JOIN Users usr ON r.OwnerUserID = usr.UserID
-     WHERE r.CompanyID = ? AND r.IIRUID = ?`,
-    [user.companyId, iirUID]
-  );
-
-  if (headers.length === 0) {
+  const loaded = await loadReport(user.companyId, iirUID);
+  if (!loaded) {
     notFound();
   }
 
-  const results = await query<InspectionResultWithLookups>(
-    `SELECT res.*,
-            c.CriteriaName,
-            m.MethodName,
-            f.FrequencyName,
-            resp.ResponsibilityName,
-            rp.ReactionPlanName,
-            rs.ResultStatusName AS ResultStatusName
-     FROM InspectionResults res
-     LEFT JOIN SpecificationCriteria c ON res.CriteriaID = c.CriteriaID
-     LEFT JOIN MethodOfInspection m ON res.MethodID = m.MethodID
-     LEFT JOIN InspectionFrequency f ON res.FrequencyID = f.FrequencyID
-     LEFT JOIN Responsibility resp ON res.ResponsibilityID = resp.ResponsibilityID
-     LEFT JOIN ReactionPlan rp ON res.ReactionPlanID = rp.ReactionPlanID
-     LEFT JOIN ResultStatus rs ON res.ResultStatusID = rs.ResultStatusID
-     WHERE res.CompanyID = ? AND res.IIRUID = ?
-     ORDER BY res.SrNo ASC`,
-    [user.companyId, iirUID]
-  );
-
+  // The Reviewer Remark is stripped here unless the signed-in user is the reviewer.
   const initialData: InspectionReportDetailResponse = {
-    ...headers[0],
-    Results: results,
+    ...presentReport(loaded.header, user.email),
+    Results: loaded.results,
   };
 
   return <IRForm initialData={initialData} isEdit={true} />;

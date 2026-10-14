@@ -137,6 +137,7 @@ export interface InspectionResultInput {
   Specification: string;
   Actual?: number | null;
   ResultStatusID?: number | null;
+  ObservedRemark?: string | null;
 }
 
 export interface CreateInspectionReportRequest {
@@ -146,6 +147,8 @@ export interface CreateInspectionReportRequest {
   QCUID: string;
   GRNNo: string;
   InvoicePath?: string | null;
+  InspectionRemark?: string | null;
+  ReviewerEmployeeUID: string;
   InspectionStatusID: number;
   Results: InspectionResultInput[];
 }
@@ -157,6 +160,8 @@ export interface UpdateInspectionReportRequest {
   QCUID?: string;
   GRNNo?: string;
   InvoicePath?: string | null;
+  InspectionRemark?: string | null;
+  ReviewerEmployeeUID?: string;
   InspectionStatusID?: number;
   Results?: InspectionResultInput[];
 }

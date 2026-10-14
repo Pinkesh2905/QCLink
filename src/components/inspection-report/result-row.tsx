@@ -116,6 +116,22 @@ export function ResultRow({
           <span>Row #{row.SrNo}</span>
           <span className="truncate">Parameter: {row.Parameter}</span>
         </div>
+
+        {/* Free-text remark about what was observed on this parameter */}
+        <div className="space-y-1 sm:col-span-2 lg:col-span-3">
+          <label className="text-xs font-medium" htmlFor={`observed-remark-${row.SrNo}`}>
+            Observed Remark
+          </label>
+          <Input
+            id={`observed-remark-${row.SrNo}`}
+            value={row.ObservedRemark ?? ''}
+            onChange={(e) => onChange({ ...row, ObservedRemark: e.target.value })}
+            placeholder="Optional — what was observed for this parameter"
+            maxLength={1000}
+            disabled={checkDisabled('ObservedRemark')}
+            className="h-9 text-sm"
+          />
+        </div>
       </div>
     </div>
   );

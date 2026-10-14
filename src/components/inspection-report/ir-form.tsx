@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { FormSection } from '@/components/shared/form-section';
@@ -18,12 +20,27 @@ import { useFieldPermissions } from '@/hooks/use-field-permissions';
 import {
   createInspectionReportSchema,
   updateInspectionReportSchema,
+  reviewReportSchema,
+  REVIEW_STATUSES,
   type InspectionResultInputSchema,
 } from '@/validators/inspection-report';
-import { Loader2, History, ArrowLeft, Save, Printer } from 'lucide-react';
+import { Loader2, History, ArrowLeft, Save, Printer, FileDown, Mail, Lock, ShieldCheck } from 'lucide-react';
 import { formatDateTimeIST } from '@/lib/datetime';
 import type { InspectionReportDetailResponse, QCMasterDetailResponse } from '@/types/api';
 import type { QCMasterWithLookups } from '@/types/db';
+
+interface ReviewerOption {
+  EmployeeUID: string;
+  EmployeeName: string;
+  Email: string;
+  IsActive: number;
+}
+
+function reviewBadgeClass(status: string | null | undefined): string {
+  if (status === 'Review Done') return 'bg-emerald-50 text-emerald-700 border-emerald-300';
+  if (status === 'Review Rejected') return 'bg-red-50 text-red-700 border-red-300';
+  return 'bg-amber-50 text-amber-700 border-amber-300';
+}
 
 interface IRFormProps {
   initialData?: InspectionReportDetailResponse;
@@ -56,6 +73,42 @@ export function IRForm({ initialData, isEdit = false }: IRFormProps) {
   const [inspectionStatusID, setInspectionStatusID] = useState(
     initialData?.InspectionStatusID ? String(initialData.InspectionStatusID) : ''
   );
+  const [inspectionRemark, setInspectionRemark] = useState(initialData?.InspectionRemark || '');
+  const [reviewerUID, setReviewerUID] = useState(initialData?.ReviewerEmployeeUID || '');
+
+  // Reviewer choices come from the Employee Master (active people only; the saved reviewer is always listed)
+  const [reviewers, setReviewers] = useState<ReviewerOption[]>([]);
+  const [reviewersLoading, setReviewersLoading] = useState(true);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/employees?active=true&pageSize=200&sortBy=EmployeeName&sortOrder=asc');
+        if (res.ok && !cancelled) {
+          const json = await res.json();
+          setReviewers(json.data);
+        }
+      } catch {
+        // the select stays empty; creating a report will say a reviewer is required
+      } finally {
+        if (!cancelled) setReviewersLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Review state (edit mode): the status badge is for everyone, the controls only for the reviewer
+  const isReviewer = !!initialData?.IsReviewer;
+  const [reviewStatus, setReviewStatus] = useState<string>(initialData?.ReviewStatus || 'Review Pending');
+  const [reviewerRemark, setReviewerRemark] = useState(initialData?.ReviewerRemark || '');
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  const [reviewSaving, setReviewSaving] = useState(false);
+  const [resending, setResending] = useState(false);
+  const savedReviewStatus = initialData?.ReviewStatus ?? null;
+  // A reviewed ("Done") report is locked until the reviewer reopens it
+  const locked = isEdit && savedReviewStatus === 'Review Done';
 
   // Available QC templates for selected item
   const [availableQCs, setAvailableQCs] = useState<QCMasterWithLookups[]>([]);
@@ -76,6 +129,7 @@ export function IRForm({ initialData, isEdit = false }: IRFormProps) {
     Specification: r.Specification,
     Actual: r.Actual,
     ResultStatusID: r.ResultStatusID,
+    ObservedRemark: r.ObservedRemark ?? null,
   })) || [];
 
   const [results, setResults] = useState<InspectionResultInputSchema[]>(initialResults);
@@ -152,6 +206,7 @@ export function IRForm({ initialData, isEdit = false }: IRFormProps) {
           Specification: s.Specification,
           Actual: null,
           ResultStatusID: null,
+          ObservedRemark: null,
         }));
 
         setResults(snapshotResults);
@@ -193,6 +248,14 @@ export function IRForm({ initialData, isEdit = false }: IRFormProps) {
       return;
     }
 
+    if (!isEdit && !reviewerUID) {
+      const err = 'Please select the reviewer who should review this report';
+      setGeneralError(err);
+      toast.error(err);
+      setLoading(false);
+      return;
+    }
+
     if (!inspectionStatusID) {
       const err = 'Overall Inspection Status is required';
       setGeneralError(err);
@@ -216,6 +279,8 @@ export function IRForm({ initialData, isEdit = false }: IRFormProps) {
       QCUID: qcUID,
       GRNNo: grnNo.trim(),
       InvoicePath: invoicePath,
+      InspectionRemark: inspectionRemark,
+      ...(reviewerUID ? { ReviewerEmployeeUID: reviewerUID } : {}),
       InspectionStatusID: Number(inspectionStatusID),
       Results: results.map((r) => ({
         ...r,
@@ -229,6 +294,7 @@ export function IRForm({ initialData, isEdit = false }: IRFormProps) {
         ReactionPlanID: Number(r.ReactionPlanID),
         Actual: r.Actual != null ? Number(r.Actual) : null,
         ResultStatusID: r.ResultStatusID ? Number(r.ResultStatusID) : null,
+        ObservedRemark: r.ObservedRemark ?? null,
       })),
     };
 
@@ -264,7 +330,11 @@ export function IRForm({ initialData, isEdit = false }: IRFormProps) {
         return;
       }
 
-      toast.success(isEdit ? 'Inspection Report updated successfully' : 'Inspection Report recorded');
+      toast.success(
+        isEdit
+          ? json.message || 'Inspection Report updated successfully'
+          : 'Inspection Report recorded — the reviewer is being emailed'
+      );
       router.push('/app/inspection-report');
       router.refresh();
     } catch {
@@ -276,6 +346,54 @@ export function IRForm({ initialData, isEdit = false }: IRFormProps) {
     }
   };
 
+  const handleSaveReview = async () => {
+    if (!initialData) return;
+    setReviewError(null);
+    const parsed = reviewReportSchema.safeParse({ ReviewStatus: reviewStatus, ReviewerRemark: reviewerRemark });
+    if (!parsed.success) {
+      setReviewError(parsed.error.issues[0]?.message || 'Please check the review');
+      return;
+    }
+    setReviewSaving(true);
+    try {
+      const res = await fetch(`/api/inspection-reports/${initialData.IIRUID}/review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(parsed.data),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setReviewError(json.error || 'Failed to save the review');
+        return;
+      }
+      toast.success(json.message || 'Review saved');
+      router.refresh();
+    } catch {
+      setReviewError('A network error occurred. Please try again.');
+    } finally {
+      setReviewSaving(false);
+    }
+  };
+
+  const handleResendReview = async () => {
+    if (!initialData) return;
+    setResending(true);
+    try {
+      const res = await fetch(`/api/inspection-reports/${initialData.IIRUID}/resend-review`, { method: 'POST' });
+      const json = await res.json();
+      if (!res.ok) {
+        toast.error(json.error || 'Could not resend the email');
+        return;
+      }
+      toast.success(json.message || 'Review request emailed');
+      router.refresh();
+    } catch {
+      toast.error('A network error occurred. Please try again.');
+    } finally {
+      setResending(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -284,8 +402,13 @@ export function IRForm({ initialData, isEdit = false }: IRFormProps) {
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
-            <h2 className="text-2xl font-bold tracking-tight">
+            <h2 className="text-2xl font-bold tracking-tight flex flex-wrap items-center gap-2">
               {isEdit ? `Report: ${initialData?.IIRUID}` : 'New Incoming Inspection Report'}
+              {isEdit && savedReviewStatus && (
+                <Badge variant="outline" className={reviewBadgeClass(savedReviewStatus)}>
+                  {savedReviewStatus}
+                </Badge>
+              )}
             </h2>
             <p className="text-sm text-muted-foreground">
               {isEdit ? 'Record testing results and disposition' : 'Perform incoming inspection against QC specifications'}
@@ -302,6 +425,13 @@ export function IRForm({ initialData, isEdit = false }: IRFormProps) {
               <Printer className="mr-2 h-4 w-4" />
               Print
             </Button>
+            <Button
+              variant="outline"
+              onClick={() => window.open(`/api/inspection-reports/${initialData.IIRUID}/pdf`, '_blank')}
+            >
+              <FileDown className="mr-2 h-4 w-4" />
+              Download PDF
+            </Button>
             <Button variant="outline" onClick={() => setHistoryOpen(true)}>
               <History className="mr-2 h-4 w-4" />
               History
@@ -313,6 +443,25 @@ export function IRForm({ initialData, isEdit = false }: IRFormProps) {
       {generalError && (
         <div className="rounded-md border border-destructive/20 bg-destructive/10 p-4 text-sm text-destructive font-medium">
           {generalError}
+        </div>
+      )}
+
+      {locked && (
+        <div className="flex items-start gap-2 rounded-md border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900">
+          <Lock className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            This report has been reviewed and is locked. {isReviewer
+              ? 'Set the review back to Pending below if it needs to be changed.'
+              : 'Ask the reviewer to reopen the review if it needs a change.'}
+          </span>
+        </div>
+      )}
+
+      {isEdit && savedReviewStatus === 'Review Rejected' && (
+        <div className="flex items-start gap-2 rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-900">
+          <span>
+            The reviewer rejected this report. Saving a change sends it back to the reviewer for a new review.
+          </span>
         </div>
       )}
 
@@ -369,7 +518,7 @@ export function IRForm({ initialData, isEdit = false }: IRFormProps) {
               value={inspectionDate}
               onChange={(e) => setInspectionDate(e.target.value)}
               required
-              disabled={isFieldDisabled('InspectionReports', 'InspectionDate', isEdit, user?.Role)}
+              disabled={locked || isFieldDisabled('InspectionReports', 'InspectionDate', isEdit, user?.Role)}
             />
           </div>
 
@@ -441,7 +590,7 @@ export function IRForm({ initialData, isEdit = false }: IRFormProps) {
               onChange={(e) => setGrnNo(e.target.value)}
               placeholder="e.g. GRN-2026-0891"
               required
-              disabled={isFieldDisabled('InspectionReports', 'GRNNo', isEdit, user?.Role)}
+              disabled={locked || isFieldDisabled('InspectionReports', 'GRNNo', isEdit, user?.Role)}
             />
           </div>
 
@@ -452,7 +601,7 @@ export function IRForm({ initialData, isEdit = false }: IRFormProps) {
             <Select
               value={inspectionStatusID}
               onValueChange={setInspectionStatusID}
-              disabled={isFieldDisabled('InspectionReports', 'InspectionStatusID', isEdit, user?.Role)}
+              disabled={locked || isFieldDisabled('InspectionReports', 'InspectionStatusID', isEdit, user?.Role)}
             >
               <SelectTrigger id="InspectionStatusID">
                 <SelectValue placeholder="Select verdict" />
@@ -467,6 +616,59 @@ export function IRForm({ initialData, isEdit = false }: IRFormProps) {
             </Select>
           </div>
 
+          <div className="space-y-2 sm:col-span-2">
+            <Label htmlFor="ReviewerEmployeeUID">
+              Reviewer <span className="text-destructive">*</span>
+            </Label>
+            <Select
+              value={reviewerUID}
+              onValueChange={setReviewerUID}
+              disabled={reviewersLoading || locked || isFieldDisabled('InspectionReports', 'ReviewerEmployeeUID', isEdit, user?.Role)}
+            >
+              <SelectTrigger id="ReviewerEmployeeUID">
+                <SelectValue
+                  placeholder={
+                    reviewersLoading
+                      ? 'Loading employees...'
+                      : reviewers.length === 0
+                      ? 'No employees yet — add one in Employee Master'
+                      : 'Select who should review this report'
+                  }
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {/* a saved reviewer who is inactive now still shows, so the report keeps displaying them */}
+                {initialData?.ReviewerEmployeeUID &&
+                  !reviewers.some((r) => r.EmployeeUID === initialData.ReviewerEmployeeUID) && (
+                    <SelectItem value={initialData.ReviewerEmployeeUID}>
+                      {initialData.ReviewerName} ({initialData.ReviewerEmail}) — inactive
+                    </SelectItem>
+                  )}
+                {reviewers.map((r) => (
+                  <SelectItem key={r.EmployeeUID} value={r.EmployeeUID}>
+                    {r.EmployeeName} ({r.Email})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              The reviewer is emailed the report (as a PDF) when it is submitted.
+            </p>
+          </div>
+
+          <div className="space-y-2 sm:col-span-3">
+            <Label htmlFor="InspectionRemark">Inspection Remark</Label>
+            <Textarea
+              id="InspectionRemark"
+              value={inspectionRemark}
+              onChange={(e) => setInspectionRemark(e.target.value)}
+              placeholder="Optional — overall remarks about this inspection"
+              rows={3}
+              maxLength={2000}
+              disabled={locked || isFieldDisabled('InspectionReports', 'InspectionRemark', isEdit, user?.Role)}
+            />
+          </div>
+
           <div className="space-y-2 sm:col-span-3">
             <Label>Invoice Document (optional)</Label>
             <FileUpload
@@ -475,7 +677,7 @@ export function IRForm({ initialData, isEdit = false }: IRFormProps) {
               uploadType="invoices"
               accept=".pdf,image/*"
               label="Upload Supplier Invoice / Delivery Challan"
-              disabled={isFieldDisabled('InspectionReports', 'InvoicePath', isEdit, user?.Role)}
+              disabled={locked || isFieldDisabled('InspectionReports', 'InvoicePath', isEdit, user?.Role)}
             />
           </div>
         </FormSection>
@@ -487,6 +689,7 @@ export function IRForm({ initialData, isEdit = false }: IRFormProps) {
             criteriaList={criteriaList}
             resultStatuses={resultStatuses}
             onChange={setResults}
+            disabled={locked}
             isFieldDisabled={isFieldDisabled}
             isEdit={isEdit}
             userRole={user?.Role}
@@ -497,12 +700,95 @@ export function IRForm({ initialData, isEdit = false }: IRFormProps) {
           <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => router.push('/app/inspection-report')}>
             Cancel
           </Button>
-          <Button type="submit" className="w-full sm:w-auto" disabled={loading || !!user?.ReadOnly}>
+          <Button type="submit" className="w-full sm:w-auto" disabled={loading || locked || !!user?.ReadOnly}>
             {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
             {isEdit ? 'Save Changes' : 'Submit Inspection Report'}
           </Button>
         </div>
       </form>
+
+      {isEdit && initialData && savedReviewStatus && (
+        <section className="space-y-4 rounded-lg border bg-card p-4 sm:p-6 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="flex items-center gap-2 text-base font-semibold">
+                <ShieldCheck className="h-4 w-4" />
+                Review
+              </h3>
+              <p className="text-xs text-muted-foreground">
+                Reviewer: {initialData.ReviewerName} ({initialData.ReviewerEmail})
+              </p>
+            </div>
+            <Badge variant="outline" className={reviewBadgeClass(savedReviewStatus)}>
+              {savedReviewStatus}
+            </Badge>
+          </div>
+
+          {!isReviewer && savedReviewStatus === 'Review Pending' && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-muted/30 p-3 text-sm">
+              <span className="flex items-center gap-2 text-muted-foreground">
+                <Mail className="h-4 w-4 shrink-0" />
+                {initialData.ReviewEmailSentAt
+                  ? `Review request emailed on ${formatDateTimeIST(initialData.ReviewEmailSentAt)}`
+                  : 'The review request email has not been sent yet'}
+              </span>
+              {!user?.ReadOnly && (
+                <Button type="button" variant="outline" size="sm" onClick={handleResendReview} disabled={resending}>
+                  {resending ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <Mail className="mr-2 h-3.5 w-3.5" />}
+                  Resend email
+                </Button>
+              )}
+            </div>
+          )}
+
+          {isReviewer && (
+            <div className="space-y-4 border-t pt-4">
+              <p className="text-xs text-muted-foreground">
+                You are the reviewer of this report. Only you can see these review controls and your remark.
+              </p>
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div className="space-y-2">
+                  <Label htmlFor="ReviewStatus">Review Status</Label>
+                  <Select value={reviewStatus} onValueChange={setReviewStatus}>
+                    <SelectTrigger id="ReviewStatus">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {REVIEW_STATUSES.map((st) => (
+                        <SelectItem key={st} value={st}>
+                          {st}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2 sm:col-span-2">
+                  <Label htmlFor="ReviewerRemark">
+                    Reviewer Remark{reviewStatus === 'Review Rejected' && <span className="text-destructive"> *</span>}
+                  </Label>
+                  <Textarea
+                    id="ReviewerRemark"
+                    value={reviewerRemark}
+                    onChange={(e) => setReviewerRemark(e.target.value)}
+                    placeholder={reviewStatus === 'Review Rejected' ? 'Say what needs to be corrected' : 'Optional'}
+                    rows={3}
+                    maxLength={2000}
+                  />
+                </div>
+              </div>
+              {reviewError && (
+                <p role="alert" className="text-sm font-medium text-destructive">{reviewError}</p>
+              )}
+              <div className="flex justify-end">
+                <Button type="button" onClick={handleSaveReview} disabled={reviewSaving || !!user?.ReadOnly}>
+                  {reviewSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                  Save Review
+                </Button>
+              </div>
+            </div>
+          )}
+        </section>
+      )}
 
       {isEdit && initialData && (
         <HistoryModal

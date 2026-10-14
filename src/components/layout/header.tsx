@@ -9,6 +9,7 @@ import { Menu } from 'lucide-react';
 const titleMap: Record<string, string> = {
   '/app/dashboard': 'Dashboard',
   '/app/store-master': 'Store Master',
+  '/app/employee-master': 'Employee Master',
   '/app/qc-master': 'QC Master',
   '/app/inspection-report': 'Inspection Reports',
   '/app/subscription': 'Subscription',

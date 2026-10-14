@@ -210,8 +210,35 @@ export interface InspectionReport {
   QCUID: string;
   GRNNo: string;
   InvoicePath: string | null;
+  InspectionRemark: string | null;
+  /** The Employee Master entry asked to review this report (null on reports made before reviews existed). */
+  ReviewerEmployeeUID: string | null;
+  ReviewerName: string | null;
+  ReviewerEmail: string | null;
+  /** null = never sent for review (older reports). */
+  ReviewStatus: ReviewStatus | null;
+  /** Only ever sent to the reviewer — the API strips it for everyone else. */
+  ReviewerRemark: string | null;
+  ReviewedAt: Date | null;
+  ReviewEmailSentAt: Date | null;
   InspectionStatusID: number;
   SubmissionID: string | null;
+  OwnerUserID: number;
+  CreatedAt: Date;
+  UpdatedAt: Date;
+}
+
+export type ReviewStatus = 'Review Pending' | 'Review Done' | 'Review Rejected';
+
+export interface Employee {
+  CompanyID: number;
+  EmployeeUID: string;   // e.g. "Emp01"
+  EmployeeName: string;
+  Email: string;
+  Department: string | null;
+  Designation: string | null;
+  Phone: string | null;
+  IsActive: number;
   OwnerUserID: number;
   CreatedAt: Date;
   UpdatedAt: Date;
@@ -234,6 +261,7 @@ export interface InspectionResult {
   Specification: string;
   Actual: number | null;
   ResultStatusID: number | null;
+  ObservedRemark: string | null;
   CreatedAt: Date;
   UpdatedAt: Date;
 }
@@ -268,7 +296,8 @@ export type PermissionModuleName =
   | 'QCMaster'
   | 'QCSpecifications'
   | 'InspectionReports'
-  | 'InspectionResults';
+  | 'InspectionResults'
+  | 'Employees';
 
 export interface FieldPermission {
   FieldPermissionID: number;
@@ -305,6 +334,12 @@ export interface QCSpecificationWithLookups extends QCSpecification {
 export interface InspectionReportWithLookups extends InspectionReport {
   OwnerName: string;
   InspectionStatusName: string;
+  /** True when the signed-in user is this report's reviewer. Set by the API, never stored. */
+  IsReviewer?: boolean;
+}
+
+export interface EmployeeWithOwner extends Employee {
+  OwnerName: string;
 }
 
 export interface InspectionResultWithLookups extends InspectionResult {

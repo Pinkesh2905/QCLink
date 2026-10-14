@@ -25,6 +25,17 @@ const idNullable = z
     return isNaN(num) || num <= 0 ? null : num;
   });
 
+/** Free text that may be left empty: blank becomes null. */
+function optionalText(max: number) {
+  return z
+    .string()
+    .nullish()
+    .transform((val) => (val == null || val.trim() === '' ? null : val.trim()))
+    .refine((val) => val === null || val.length <= max, { message: `Must be at most ${max} characters` });
+}
+
+export const REVIEW_STATUSES = ['Review Pending', 'Review Done', 'Review Rejected'] as const;
+
 export const inspectionResultInputSchema = z.object({
   SrNo: z.union([z.number(), z.string()]).transform(Number),
   Parameter: z.string().min(1).max(255).trim(),
@@ -39,6 +50,7 @@ export const inspectionResultInputSchema = z.object({
   Specification: z.string().min(1),
   Actual: numericNullable,
   ResultStatusID: idNullable,
+  ObservedRemark: optionalText(1000),
 });
 
 export const createInspectionReportSchema = z.object({
@@ -48,6 +60,8 @@ export const createInspectionReportSchema = z.object({
   QCUID: z.string().min(1, 'QC Specification template selection is required'),
   GRNNo: z.string().min(1, 'GRN Number is required').max(100).trim(),
   InvoicePath: z.string().nullable().optional(),
+  InspectionRemark: optionalText(2000),
+  ReviewerEmployeeUID: z.string().trim().min(1, 'Reviewer is required').max(20),
   InspectionStatusID: idRequired,
   Results: z
     .array(inspectionResultInputSchema)
@@ -61,10 +75,24 @@ export const updateInspectionReportSchema = z.object({
   QCUID: z.string().min(1).optional(),
   GRNNo: z.string().min(1).max(100).trim().optional(),
   InvoicePath: z.string().nullable().optional(),
+  InspectionRemark: optionalText(2000).optional(),
+  ReviewerEmployeeUID: z.string().trim().min(1, 'Reviewer is required').max(20).optional(),
   InspectionStatusID: idRequired.optional(),
   Results: z.array(inspectionResultInputSchema).optional(),
 });
 
+/** What a reviewer submits: a verdict, plus a remark (mandatory when rejecting). */
+export const reviewReportSchema = z
+  .object({
+    ReviewStatus: z.enum(REVIEW_STATUSES),
+    ReviewerRemark: optionalText(2000),
+  })
+  .refine((v) => v.ReviewStatus !== 'Review Rejected' || v.ReviewerRemark !== null, {
+    message: 'Please write a Reviewer Remark explaining the rejection',
+    path: ['ReviewerRemark'],
+  });
+
+export type ReviewReportInput = z.infer<typeof reviewReportSchema>;
 export type InspectionResultInputSchema = z.infer<typeof inspectionResultInputSchema>;
 export type CreateInspectionReportInput = z.infer<typeof createInspectionReportSchema>;
 export type UpdateInspectionReportInput = z.infer<typeof updateInspectionReportSchema>;
