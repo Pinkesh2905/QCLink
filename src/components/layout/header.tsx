@@ -3,8 +3,6 @@
 import { usePathname } from 'next/navigation';
 import { useSession } from '@/hooks/use-session';
 import { Logo } from './logo';
-import { Button } from '@/components/ui/button';
-import { Menu } from 'lucide-react';
 
 const titleMap: Record<string, string> = {
   '/app/dashboard': 'Dashboard',
@@ -35,30 +33,15 @@ function getPageTitle(pathname: string): string {
   return 'QCLink';
 }
 
-interface HeaderProps {
-  onToggleMobileNav?: () => void;
-}
-
-export function Header({ onToggleMobileNav }: HeaderProps) {
+export function Header() {
   const pathname = usePathname();
   const { user } = useSession();
   const title = getPageTitle(pathname);
 
   return (
     <header className="sticky top-0 z-30 flex h-14 sm:h-16 w-full items-center justify-between border-b bg-background/95 px-3.5 sm:px-6 md:px-8 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      {/* Left: Mobile Hamburger + Logo + Title */}
+      {/* Left: Logo (phones) + Title. Navigation on phones is the bottom bar. */}
       <div className="flex items-center gap-2.5 sm:gap-3.5 min-w-0 max-w-[80%] sm:max-w-[75%]">
-        {/* Mobile Hamburger Button */}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="md:hidden h-9 w-9 shrink-0 -ml-1 text-muted-foreground hover:text-foreground"
-          onClick={onToggleMobileNav}
-          aria-label="Open navigation menu"
-        >
-          <Menu className="h-5 w-5" />
-        </Button>
-
         {/* Mobile Branding (Logo icon + text on small screens) */}
         <div className="md:hidden flex items-center shrink-0">
           <Logo size="sm" showText={false} />

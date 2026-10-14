@@ -1,9 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { usePathname } from 'next/navigation';
 import { Sidebar } from './sidebar';
 import { Header } from './header';
+import { BottomNav } from './bottom-nav';
 import { SubscriptionBanner } from './subscription-banner';
 
 interface AppShellProps {
@@ -11,52 +10,18 @@ interface AppShellProps {
 }
 
 export function AppShell({ children }: AppShellProps) {
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const pathname = usePathname();
-
-  // Automatically close mobile menu when navigating to a new route
-  useEffect(() => {
-    setMobileOpen(false);
-  }, [pathname]);
-
-  // Lock body scroll when mobile drawer is open
-  useEffect(() => {
-    if (mobileOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
-    return () => {
-      document.body.style.overflow = '';
-    };
-  }, [mobileOpen]);
-
-  // Close on Escape key press
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && mobileOpen) {
-        setMobileOpen(false);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [mobileOpen]);
-
   return (
     <div className="relative flex min-h-screen w-full max-w-full overflow-x-hidden bg-background">
-      {/* Sidebar (Desktop persistent + Mobile Drawer with solid navigation background) */}
-      <Sidebar
-        mobileOpen={mobileOpen}
-        onCloseMobile={() => setMobileOpen(false)}
-      />
+      {/* Desktop / tablet: persistent sidebar. Phones: bottom navigation bar. */}
+      <Sidebar />
+      <BottomNav />
 
       {/* Main Content Area */}
       <div className="relative flex flex-1 flex-col min-w-0 w-full md:ml-64 transition-all min-h-screen">
-        <Header
-          onToggleMobileNav={() => setMobileOpen((prev) => !prev)}
-        />
+        <Header />
         <SubscriptionBanner />
-        <main className="relative z-10 flex-1 w-full max-w-full min-w-0 p-3.5 sm:p-6 md:p-8 overflow-x-hidden">
+        {/* On phones, leave room under the content for the fixed bottom bar (4rem) plus breathing space */}
+        <main className="relative z-10 flex-1 w-full max-w-full min-w-0 p-3.5 pb-[calc(5.5rem+env(safe-area-inset-bottom,0px))] sm:p-6 sm:pb-[calc(5.5rem+env(safe-area-inset-bottom,0px))] md:p-8 overflow-x-hidden">
           {children}
         </main>
       </div>
